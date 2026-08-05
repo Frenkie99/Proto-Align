@@ -1,0 +1,973 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <!--
+    方向二｜证据调查图 Evidence Investigation Map
+    设计假设：初阶产品经理此刻最需要的不是先浏览 Issue 队列，而是看清「哪些材料共同支持了什么主张」，再决定事实边界与验收条件。因此首屏以证据节点和关系线为主对象，ISS-014 是证据汇聚后的结果，不是入口。
+    核心交互：①选择证据节点，高亮其关系、来源摘要与对应原型定位；②在「关系图 / 原型定位」间切换；③逐项确认事实、推断或待确认；④展开 Agent 调查轨迹；⑤通过下拉框切换 V1–V4，观察验证语义变化。
+    色彩论证：暖灰纸白与灰色规则线表达可审阅的工作底稿；唯一强调色氧化朱红 #C24F35，只用于当前选择、冲突、阻塞和可执行动作。其余状态依靠线型、字重与底色区分，避免用彩色制造虚假的确定性。
+    实现说明：单文件 HTML/CSS/JS，无外部依赖；设计基准 1440×1024，窄屏保持最小工作宽度并允许横向滚动。
+  -->
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ProtoAlign · 证据调查图</title>
+  <style>
+    :root {
+      --paper: #f3f1ec;
+      --paper-2: #f7f6f2;
+      --ink: #171715;
+      --muted: #6b6962;
+      --faint: #98958c;
+      --line: #d6d2c8;
+      --line-dark: #aaa69d;
+      --accent: #c24f35;
+      --accent-soft: #f0ddd7;
+      --charcoal: #262521;
+      --mono: "Geist Mono", "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+      --sans: Geist, "IBM Plex Sans", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      width: 100%;
+      min-width: 1180px;
+      height: 100%;
+      margin: 0;
+      overflow: auto;
+      background: #dedbd3;
+      color: var(--ink);
+      font-family: var(--sans);
+    }
+
+    button, select { font: inherit; }
+    button { color: inherit; }
+
+    .app {
+      width: 1440px;
+      height: 1024px;
+      margin: 0 auto;
+      overflow: hidden;
+      background: var(--paper);
+      border-left: 1px solid var(--line-dark);
+      border-right: 1px solid var(--line-dark);
+    }
+
+    .topbar {
+      height: 64px;
+      display: grid;
+      grid-template-columns: 248px 1fr auto;
+      align-items: stretch;
+      border-bottom: 1px solid var(--line-dark);
+      background: var(--paper-2);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 20px;
+      border-right: 1px solid var(--line);
+      font-weight: 650;
+      letter-spacing: -0.01em;
+    }
+
+    .brand-mark {
+      width: 24px;
+      height: 24px;
+      position: relative;
+      border: 1px solid var(--ink);
+    }
+
+    .brand-mark::before,
+    .brand-mark::after {
+      content: "";
+      position: absolute;
+      background: var(--accent);
+    }
+
+    .brand-mark::before { width: 1px; height: 22px; left: 10px; top: 0; }
+    .brand-mark::after { height: 1px; width: 22px; left: 0; top: 10px; }
+
+    .project-meta {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 0 20px;
+      min-width: 0;
+    }
+
+    .project-title {
+      font-size: 15px;
+      font-weight: 650;
+      white-space: nowrap;
+    }
+
+    .project-path {
+      font-family: var(--mono);
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .gate {
+      display: flex;
+      align-items: center;
+      height: 100%;
+      padding: 0 17px;
+      border-left: 1px solid var(--line);
+      gap: 10px;
+    }
+
+    .gate-state {
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 680;
+      white-space: nowrap;
+    }
+
+    .gate-state::before {
+      content: "";
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      margin-right: 8px;
+      background: var(--accent);
+    }
+
+    .version-select {
+      height: 34px;
+      min-width: 112px;
+      padding: 0 28px 0 10px;
+      border: 1px solid var(--line-dark);
+      border-radius: 0;
+      background: var(--paper-2);
+      color: var(--ink);
+      cursor: pointer;
+    }
+
+    .version-select:hover,
+    .version-select:focus-visible { border-color: var(--ink); outline: 1px solid var(--ink); outline-offset: -2px; }
+
+    .controlbar {
+      height: 48px;
+      display: grid;
+      grid-template-columns: 248px 1fr 392px;
+      border-bottom: 1px solid var(--line-dark);
+      background: var(--paper);
+    }
+
+    .control-label {
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      border-right: 1px solid var(--line);
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+
+    .view-switch {
+      display: flex;
+      align-items: stretch;
+      border-right: 1px solid var(--line);
+    }
+
+    .view-btn {
+      min-width: 132px;
+      border: 0;
+      border-right: 1px solid var(--line);
+      background: transparent;
+      cursor: pointer;
+      font-size: 13px;
+      position: relative;
+    }
+
+    .view-btn:hover { background: #ece9e2; }
+    .view-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: -3px; }
+    .view-btn.active { font-weight: 680; background: var(--paper-2); }
+    .view-btn.active::after {
+      content: "";
+      position: absolute;
+      height: 3px;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: var(--accent);
+    }
+
+    .legend {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 0 18px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .legend i { display: inline-block; width: 18px; height: 1px; margin-right: 6px; vertical-align: 3px; background: var(--line-dark); }
+    .legend .dash { background: repeating-linear-gradient(90deg, var(--line-dark) 0 4px, transparent 4px 7px); }
+    .legend .conflict { height: 3px; background: var(--accent); }
+
+    .trail-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 18px;
+      border: 0;
+      background: transparent;
+      cursor: pointer;
+      font-size: 13px;
+      text-align: left;
+    }
+
+    .trail-toggle:hover { background: #ece9e2; }
+    .trail-toggle:focus-visible { outline: 2px solid var(--ink); outline-offset: -3px; }
+    .trail-toggle .toggle-meta { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+    .trail-toggle .chev { font-size: 17px; transition: transform 180ms ease; }
+    .trail-toggle[aria-expanded="true"] .chev { transform: rotate(180deg); }
+
+    .workspace {
+      height: 912px;
+      display: grid;
+      grid-template-columns: 248px 800px 392px;
+    }
+
+    .evidence-index {
+      border-right: 1px solid var(--line-dark);
+      background: #efede7;
+      overflow: hidden;
+    }
+
+    .section-head {
+      height: 62px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 0 20px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .eyebrow {
+      margin: 0 0 4px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .section-head h2 { margin: 0; font-size: 16px; font-weight: 660; }
+
+    .index-group-label {
+      display: flex;
+      align-items: center;
+      height: 34px;
+      padding: 0 20px;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+
+    .evidence-list { list-style: none; margin: 0; padding: 0; }
+
+    .evidence-button {
+      width: 100%;
+      min-height: 100px;
+      display: grid;
+      grid-template-columns: 34px 1fr;
+      gap: 8px;
+      padding: 14px 16px 14px 20px;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+      position: relative;
+    }
+
+    .evidence-button:hover { background: var(--paper-2); }
+    .evidence-button:focus-visible { outline: 2px solid var(--ink); outline-offset: -3px; }
+    .evidence-button.active { background: var(--paper-2); }
+    .evidence-button.active::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 4px;
+      background: var(--accent);
+    }
+
+    .evidence-id { color: var(--muted); font-family: var(--mono); font-size: 10px; padding-top: 2px; }
+    .evidence-button.active .evidence-id { color: var(--accent); font-weight: 700; }
+    .evidence-name { display: block; font-size: 13px; font-weight: 650; line-height: 1.4; }
+    .evidence-origin { display: block; margin-top: 7px; color: var(--muted); font-size: 11px; line-height: 1.4; }
+
+    .related-index { margin-top: 12px; border-top: 1px solid var(--line-dark); }
+    .related-row {
+      min-height: 64px;
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--line);
+    }
+    .related-id { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+    .related-title { margin-top: 4px; font-size: 12px; line-height: 1.4; }
+
+    .stage {
+      position: relative;
+      background-color: var(--paper);
+      background-image:
+        linear-gradient(to right, rgba(107,105,98,.075) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(107,105,98,.075) 1px, transparent 1px);
+      background-size: 40px 40px;
+      overflow: hidden;
+    }
+
+    .stage-view { display: none; height: 100%; }
+    .stage-view.active { display: block; }
+
+    .stage-header {
+      height: 62px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 22px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(243,241,236,.94);
+    }
+
+    .stage-title { font-size: 15px; font-weight: 670; }
+    .stage-title .mono { color: var(--accent); font-family: var(--mono); font-size: 11px; margin-right: 10px; }
+    .stage-note { color: var(--muted); font-size: 11px; }
+
+    .graph-canvas { position: relative; height: 700px; }
+    .graph-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    .edge { fill: none; stroke: var(--line-dark); stroke-width: 1.25; transition: stroke 180ms ease, stroke-width 180ms ease, opacity 180ms ease; }
+    .edge.dashed { stroke-dasharray: 5 5; }
+    .edge.active { stroke: var(--accent); stroke-width: 2.4; }
+    .edge.dim { opacity: .25; }
+    .edge-arrow { fill: var(--line-dark); transition: fill 180ms ease; }
+    .edge-arrow.active { fill: var(--accent); }
+    .edge-label { font-family: var(--mono); font-size: 9px; fill: var(--muted); letter-spacing: .03em; }
+    .edge-label.active { fill: var(--accent); font-weight: 700; }
+
+    .node {
+      position: absolute;
+      border: 1px solid var(--line-dark);
+      background: rgba(247,246,242,.98);
+      cursor: pointer;
+      text-align: left;
+      padding: 0;
+      transition: border-color 180ms ease, opacity 180ms ease, transform 180ms ease;
+    }
+
+    .node:hover { border-color: var(--ink); }
+    .node:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+    .node.active { border-color: var(--accent); box-shadow: inset 0 3px 0 var(--accent); transform: translateY(-2px); }
+    .node.related { border-color: var(--accent); }
+    .node.dim { opacity: .42; }
+    .node .node-top {
+      min-height: 27px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 10px;
+      border-bottom: 1px solid var(--line);
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--muted);
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .node .node-body { padding: 11px 12px 12px; }
+    .node-title { display: block; margin: 0 0 6px; font-size: 13px; font-weight: 680; line-height: 1.4; }
+    .node-copy { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+    .node-flag { color: var(--accent); font-weight: 700; }
+
+    .node-e1 { left: 28px; top: 54px; width: 225px; height: 122px; }
+    .node-e2 { left: 28px; top: 267px; width: 225px; height: 116px; }
+    .node-e3 { left: 28px; top: 476px; width: 225px; height: 122px; }
+    .node-claim { left: 314px; top: 223px; width: 250px; height: 176px; border-width: 2px; }
+    .node-claim .node-title { font-size: 16px; letter-spacing: -.01em; }
+    .node-decision { left: 620px; top: 122px; width: 154px; height: 150px; }
+    .node-verify { left: 620px; top: 397px; width: 154px; height: 166px; }
+
+    .node-decision,
+    .node-verify { cursor: default; }
+    .node-decision:hover,
+    .node-verify:hover { border-color: var(--line-dark); }
+
+    .mini-list { margin: 0; padding: 0; list-style: none; }
+    .mini-list li { padding: 5px 0; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 10.5px; line-height: 1.35; }
+    .mini-list li:last-child { border-bottom: 0; }
+
+    .graph-footer {
+      height: 150px;
+      display: grid;
+      grid-template-columns: 1fr 246px;
+      border-top: 1px solid var(--line-dark);
+      background: rgba(247,246,242,.96);
+    }
+
+    .selected-summary { padding: 16px 22px; border-right: 1px solid var(--line); }
+    .selected-summary .quote { margin: 7px 0 0; font-size: 12px; line-height: 1.62; color: var(--ink); }
+    .selected-summary .source { color: var(--muted); font-family: var(--mono); font-size: 10px; }
+    .selected-locate { padding: 16px 18px; }
+    .locate-path { margin-top: 8px; font-size: 12px; font-weight: 650; line-height: 1.5; }
+    .locate-btn {
+      margin-top: 10px;
+      width: 100%;
+      height: 34px;
+      border: 1px solid var(--ink);
+      border-radius: 0;
+      background: transparent;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 650;
+    }
+    .locate-btn:hover { background: var(--ink); color: var(--paper-2); }
+    .locate-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    .prototype-canvas { height: 850px; padding: 22px; }
+    .prototype-shell { height: 720px; border: 1px solid var(--line-dark); background: var(--paper-2); }
+    .proto-top {
+      height: 48px;
+      display: grid;
+      grid-template-columns: 175px 1fr 160px;
+      border-bottom: 1px solid var(--line-dark);
+      align-items: center;
+      font-size: 12px;
+    }
+    .proto-top > div { height: 100%; display: flex; align-items: center; padding: 0 14px; border-right: 1px solid var(--line); }
+    .proto-top > div:last-child { border-right: 0; color: var(--muted); font-family: var(--mono); font-size: 10px; }
+    .proto-body { height: 670px; display: grid; grid-template-columns: 200px 1fr; }
+    .conversation-list { border-right: 1px solid var(--line-dark); background: #efede7; }
+    .conv-head { height: 42px; display: flex; align-items: center; padding: 0 14px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+    .conv-item { min-height: 64px; padding: 11px 14px; border-bottom: 1px solid var(--line); font-size: 11px; line-height: 1.4; }
+    .conv-item.active { background: var(--paper-2); box-shadow: inset 3px 0 0 var(--ink); }
+    .conv-item span { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; }
+    .reply-workspace { padding: 18px 22px; position: relative; }
+    .customer-question { padding: 14px 16px; border: 1px solid var(--line); font-size: 13px; line-height: 1.55; background: var(--paper); }
+    .reply-label { display: flex; justify-content: space-between; margin: 22px 0 8px; font-size: 12px; font-weight: 660; }
+    .reply-label span { color: var(--muted); font-family: var(--mono); font-size: 10px; font-weight: 400; }
+    .reply-box { min-height: 206px; padding: 18px; border: 1px solid var(--line-dark); background: white; font-size: 13px; line-height: 1.7; }
+    .knowledge-gap {
+      margin-top: 14px;
+      padding: 12px 14px;
+      border: 2px solid var(--accent);
+      background: var(--accent-soft);
+      position: relative;
+      color: #703222;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .knowledge-gap::before {
+      content: "ISS-014 · 原型缺口";
+      position: absolute;
+      top: -23px;
+      right: -2px;
+      height: 21px;
+      padding: 0 8px;
+      display: flex;
+      align-items: center;
+      background: var(--accent);
+      color: white;
+      font-family: var(--mono);
+      font-size: 9px;
+    }
+    .proto-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+    .proto-action { height: 34px; padding: 0 14px; border: 1px solid var(--line-dark); background: transparent; font-size: 11px; }
+    .proto-action.primary { background: var(--charcoal); color: white; border-color: var(--charcoal); }
+    .version-message { margin-top: 18px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+
+    .inspector {
+      border-left: 1px solid var(--line-dark);
+      background: var(--paper-2);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .inspector-scroll { height: 100%; overflow: hidden; }
+    .inspector-block { border-bottom: 1px solid var(--line-dark); }
+    .inspector-heading { min-height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 18px; border-bottom: 1px solid var(--line); }
+    .inspector-heading h3 { margin: 0; font-size: 13px; font-weight: 680; }
+    .inspector-heading span { color: var(--muted); font-family: var(--mono); font-size: 10px; }
+
+    .claim-summary { padding: 15px 18px 16px; }
+    .claim-id { color: var(--accent); font-family: var(--mono); font-size: 10px; font-weight: 700; }
+    .claim-summary h2 { margin: 7px 0 9px; font-size: 18px; line-height: 1.35; letter-spacing: -.015em; }
+    .claim-meta { display: flex; gap: 8px; flex-wrap: wrap; }
+    .meta-chip { border: 1px solid var(--line); padding: 4px 7px; color: var(--muted); font-size: 10px; }
+    .meta-chip.blocker { border-color: var(--accent); color: var(--accent); font-weight: 650; }
+
+    .judgement-list { padding: 0; }
+    .judgement-row {
+      display: grid;
+      grid-template-columns: 1fr 116px;
+      min-height: 62px;
+      border-bottom: 1px solid var(--line);
+      align-items: stretch;
+    }
+    .judgement-row:last-child { border-bottom: 0; }
+    .judgement-copy { padding: 10px 12px 10px 18px; font-size: 11px; line-height: 1.45; }
+    .judgement-copy strong { display: block; margin-bottom: 3px; font-size: 11px; }
+    .judgement-copy span { color: var(--muted); }
+    .judgement-select {
+      width: 100%;
+      height: 100%;
+      border: 0;
+      border-left: 1px solid var(--line);
+      border-radius: 0;
+      padding: 0 8px;
+      background: var(--paper);
+      color: var(--ink);
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .judgement-select.status-fact { font-weight: 700; }
+    .judgement-select.status-inference { color: var(--accent); font-weight: 700; background: var(--accent-soft); }
+    .judgement-select.status-pending { color: var(--accent); border-left-color: var(--accent); }
+    .judgement-select:focus-visible { outline: 2px solid var(--ink); outline-offset: -3px; }
+
+    .coach-note { padding: 14px 18px 16px; border-left: 4px solid var(--accent); font-size: 12px; line-height: 1.6; background: #f0eee8; }
+    .coach-note .label { display: block; margin-bottom: 6px; color: var(--muted); font-family: var(--mono); font-size: 9px; letter-spacing: .06em; text-transform: uppercase; }
+
+    .actions { display: grid; grid-template-columns: 1fr 1fr; }
+    .action-btn {
+      min-height: 38px;
+      padding: 0 10px;
+      border: 0;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      background: transparent;
+      cursor: pointer;
+      font-size: 11px;
+    }
+    .action-btn:nth-child(2n) { border-right: 0; }
+    .action-btn:hover { background: #ece9e2; }
+    .action-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: -3px; }
+    .action-btn.primary { background: var(--accent); color: white; font-weight: 670; }
+    .action-btn.primary:hover { background: #a8412b; }
+
+    .trail-panel {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      background: var(--paper-2);
+      transform: translateY(-101%);
+      transition: transform 220ms ease;
+      z-index: 5;
+    }
+    .trail-panel.open { transform: translateY(0); }
+    .trail-head { height: 62px; display: flex; align-items: center; justify-content: space-between; padding: 0 18px; border-bottom: 1px solid var(--line-dark); }
+    .trail-head h2 { margin: 0; font-size: 16px; }
+    .trail-close { width: 32px; height: 32px; border: 1px solid var(--line-dark); background: transparent; cursor: pointer; font-size: 18px; }
+    .trail-close:hover { background: var(--ink); color: white; }
+    .trail-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .trail-intro { padding: 14px 18px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 11px; line-height: 1.55; }
+    .trail-steps { padding: 0 18px; }
+    .trail-step { display: grid; grid-template-columns: 28px 1fr; min-height: 118px; position: relative; }
+    .trail-step::before { content: ""; position: absolute; left: 13px; top: 31px; bottom: -1px; width: 1px; background: var(--line-dark); }
+    .trail-step:last-child::before { display: none; }
+    .step-no { width: 27px; height: 27px; margin-top: 17px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--line-dark); background: var(--paper-2); font-family: var(--mono); font-size: 9px; z-index: 1; }
+    .step-content { padding: 15px 0 14px 14px; border-bottom: 1px solid var(--line); }
+    .step-kind { color: var(--accent); font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+    .step-content p { margin: 6px 0 7px; font-size: 12px; line-height: 1.55; }
+    .step-result { display: inline-block; padding: 4px 6px; border: 1px solid var(--line); color: var(--muted); font-family: var(--mono); font-size: 9px; }
+    .trail-wait { margin: 18px; padding: 14px; border: 1px solid var(--accent); background: var(--accent-soft); color: #703222; font-size: 12px; line-height: 1.55; }
+
+    .toast {
+      position: absolute;
+      right: 18px;
+      bottom: 18px;
+      width: 350px;
+      padding: 13px 14px;
+      border: 1px solid var(--ink);
+      background: var(--charcoal);
+      color: white;
+      box-shadow: 0 12px 36px rgba(20,18,14,.12);
+      transform: translateY(18px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 180ms ease, transform 180ms ease;
+      z-index: 20;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .toast strong { display: block; margin-bottom: 3px; color: #f3c7bb; }
+
+    @media (max-width: 1439px) {
+      .app { margin: 0; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app" aria-label="ProtoAlign 证据调查图">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span>ProtoAlign</span></div>
+      <div class="project-meta">
+        <span class="project-title">AI 客服回复助手</span>
+        <span class="project-path">研发交付前 / 客服工作台 / 回复生成区</span>
+      </div>
+      <div class="gate">
+        <span class="gate-state">暂不可交付</span>
+        <label>
+          <span class="visually-hidden"></span>
+          <select id="versionSelect" class="version-select" aria-label="选择原型版本">
+            <option value="V1" selected>版本 V1</option>
+            <option value="V2">版本 V2</option>
+            <option value="V3">版本 V3</option>
+            <option value="V4">版本 V4</option>
+          </select>
+        </label>
+      </div>
+    </header>
+
+    <nav class="controlbar" aria-label="调查视图控制">
+      <div class="control-label">Investigation / ISS-014</div>
+      <div class="view-switch">
+        <button class="view-btn active" data-view="map" aria-pressed="true">关系图</button>
+        <button class="view-btn" data-view="prototype" aria-pressed="false">原型定位</button>
+        <div class="legend" aria-label="关系图图例">
+          <span><i></i>事实支持</span>
+          <span><i class="dash"></i>Agent 推断</span>
+          <span><i class="conflict"></i>冲突 / 阻塞</span>
+        </div>
+      </div>
+      <button id="trailToggle" class="trail-toggle" aria-expanded="false" aria-controls="trailPanel">
+        <span>Agent 调查轨迹</span><span class="toggle-meta">4 项可核验行动</span><span class="chev" aria-hidden="true">⌄</span>
+      </button>
+    </nav>
+
+    <div class="workspace">
+      <aside class="evidence-index" aria-label="证据索引">
+        <div class="section-head"><p class="eyebrow">Evidence registry</p><h2>证据索引</h2></div>
+        <div class="index-group-label">支持 ISS-014 的材料</div>
+        <ul class="evidence-list">
+          <li><button class="evidence-button active" data-evidence="e1"><span class="evidence-id">E01</span><span><span class="evidence-name">客户会议纪要</span><span class="evidence-origin">客户反馈 · 7 月 28 日<br>知识库更新延迟</span></span></button></li>
+          <li><button class="evidence-button" data-evidence="e2"><span class="evidence-id">E02</span><span><span class="evidence-name">V1 原型检查</span><span class="evidence-origin">客服工作台<br>未发现同步状态</span></span></button></li>
+          <li><button class="evidence-button" data-evidence="e3"><span class="evidence-id">E03</span><span><span class="evidence-name">研发评审记录</span><span class="evidence-origin">研发反馈 · 7 月 30 日<br>异步同步约束</span></span></button></li>
+        </ul>
+        <div class="related-index">
+          <div class="index-group-label">同项目待调查</div>
+          <div class="related-row"><span class="related-id">ISS-011 · 待处理</span><div class="related-title">高风险回复缺少人工确认</div></div>
+          <div class="related-row"><span class="related-id">ISS-016 · 待确认</span><div class="related-title">无法回答时没有失败兜底</div></div>
+          <div class="related-row"><span class="related-id">ISS-018 · 待处理</span><div class="related-title">转人工入口在长对话中不可见</div></div>
+        </div>
+      </aside>
+
+      <section class="stage" aria-label="证据与主张工作区">
+        <div id="mapView" class="stage-view active">
+          <div class="stage-header">
+            <div class="stage-title"><span class="mono">MAP 01</span>证据如何构成问题</div>
+            <div class="stage-note">选择任一证据，查看它支持的主张与验证路径</div>
+          </div>
+          <div class="graph-canvas">
+            <svg class="graph-svg" viewBox="0 0 800 700" preserveAspectRatio="none" aria-hidden="true">
+              <defs>
+                <marker id="arrowGrey" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#aaa69d" /></marker>
+                <marker id="arrowRed" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#c24f35" /></marker>
+              </defs>
+              <path class="edge active" data-edge="e1" d="M253 116 H282 V270 H314" marker-end="url(#arrowRed)" />
+              <path class="edge dashed dim" data-edge="e2" d="M253 325 H314" marker-end="url(#arrowGrey)" />
+              <path class="edge dim" data-edge="e3" d="M253 537 H283 V355 H314" marker-end="url(#arrowGrey)" />
+              <path class="edge related active" data-edge="e1" d="M564 282 H592 V197 H620" marker-end="url(#arrowRed)" />
+              <path class="edge related active" data-edge="e1" d="M564 342 H592 V480 H620" marker-end="url(#arrowRed)" />
+              <text class="edge-label active" data-label="e1" x="262" y="105">原始反馈</text>
+              <text class="edge-label" data-label="e2" x="265" y="316">界面检查</text>
+              <text class="edge-label" data-label="e3" x="262" y="528">技术约束</text>
+              <text class="edge-label active" data-label="e1" x="574" y="185">需要人决定</text>
+              <text class="edge-label active" data-label="e1" x="574" y="496">指向验证</text>
+            </svg>
+
+            <button class="node node-e1 active" data-node="e1">
+              <span class="node-top"><span>E01 · 客户反馈</span><span>事实来源</span></span>
+              <span class="node-body"><span class="node-title">知识库更新延迟</span><span class="node-copy">部分回复与实际政策不一致，用户没有被告知可能延迟。</span></span>
+            </button>
+            <button class="node node-e2 dim" data-node="e2">
+              <span class="node-top"><span>E02 · 原型检查</span><span>Agent 推断</span></span>
+              <span class="node-body"><span class="node-title">V1 缺少状态提示</span><span class="node-copy">回复区未发现同步状态、最近更新时间或过期提示。</span></span>
+            </button>
+            <button class="node node-e3 dim" data-node="e3">
+              <span class="node-top"><span>E03 · 研发反馈</span><span>事实来源</span></span>
+              <span class="node-body"><span class="node-title">同步为异步任务</span><span class="node-copy">更新完成时间不能保证；前端必须展示同步状态。</span></span>
+            </button>
+
+            <button class="node node-claim related" data-node="claim">
+              <span class="node-top"><span>ISS-014 · 主张</span><span class="node-flag">阻塞交付</span></span>
+              <span class="node-body"><span class="node-title">知识库更新延迟没有被清楚告知</span><span class="node-copy">客户反馈与研发约束指向同一风险：客服可能把基于过期政策生成的回复直接发给用户。</span></span>
+            </button>
+
+            <div class="node node-decision related" data-node="decision">
+              <div class="node-top"><span>D01 · 人的决定</span><span>待确认</span></div>
+              <div class="node-body"><span class="node-title">资料过期时，是否允许发送？</span><p class="node-copy">AI 只能提出建议，产品经理做最终取舍。</p></div>
+            </div>
+
+            <div class="node node-verify related" data-node="verify">
+              <div class="node-top"><span>V02 · 验证条件</span><span>下一版本</span></div>
+              <div class="node-body">
+                <ul class="mini-list">
+                  <li>显示知识状态与最近更新时间</li>
+                  <li>同步中或过期时明确提示</li>
+                  <li>未确认风险时不能直接发送</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="graph-footer">
+            <div class="selected-summary">
+              <p class="eyebrow">当前证据 · <span id="selectedEvidenceId">E01</span></p>
+              <div id="selectedQuote" class="quote">「知识库更新后，客服回复中的部分信息与实际政策不一致，用户没有被告知可能延迟，导致误解和投诉。」</div>
+              <div id="selectedSource" class="source">《7 月 28 日客户会议纪要》· 客户反馈</div>
+            </div>
+            <div class="selected-locate">
+              <p class="eyebrow">关联原型位置</p>
+              <div id="selectedPath" class="locate-path">V1 / 客服工作台 / 回复生成区</div>
+              <button id="locateButton" class="locate-btn">在原型中定位</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="prototypeView" class="stage-view">
+          <div class="stage-header">
+            <div class="stage-title"><span class="mono">LOC 01</span><span id="prototypeVersionTitle">V1</span> / 客服工作台 / 回复生成区</div>
+            <div class="stage-note">朱红框显示 ISS-014 关联缺口</div>
+          </div>
+          <div class="prototype-canvas">
+            <div class="prototype-shell">
+              <div class="proto-top"><div><strong>客服工作台</strong></div><div>当前会话 · 政策咨询</div><div id="protoVersionLabel">PROTOTYPE V1</div></div>
+              <div class="proto-body">
+                <aside class="conversation-list">
+                  <div class="conv-head">会话</div>
+                  <div class="conv-item active">配送范围咨询<span>等待回复</span></div>
+                  <div class="conv-item">退换货政策<span>处理中</span></div>
+                  <div class="conv-item">发票开具<span>已回复</span></div>
+                </aside>
+                <div class="reply-workspace">
+                  <div class="customer-question"><strong>用户问题</strong><br>新政策生效后，偏远地区的配送范围有没有变化？</div>
+                  <div class="reply-label">AI 候选回复 <span>基于知识库生成</span></div>
+                  <div class="reply-box">根据当前知识库信息，偏远地区配送范围与原有政策保持一致。建议您提供具体地址，我们可以进一步核对是否在可配送区域内。</div>
+                  <div id="knowledgeGap" class="knowledge-gap">当前界面只显示「基于知识库生成」，没有同步状态、最近更新时间或资料过期提示；客服仍可直接发送。</div>
+                  <div class="proto-actions"><button class="proto-action">重新生成</button><button class="proto-action primary">确认并发送</button></div>
+                  <div id="versionMessage" class="version-message">当前选择 V1：ISS-014 的验证条件尚未满足。</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="toast" class="toast" role="status" aria-live="polite"><strong id="toastTitle">状态已更新</strong><span id="toastText"></span></div>
+      </section>
+
+      <aside class="inspector" aria-label="主张判定与操作">
+        <div class="inspector-scroll">
+          <section class="inspector-block">
+            <div class="claim-summary">
+              <span class="claim-id">ISS-014 · 当前主张</span>
+              <h2>知识库更新延迟没有被清楚告知</h2>
+              <div class="claim-meta"><span class="meta-chip blocker">阻塞交付</span><span class="meta-chip">处理中</span><span class="meta-chip">来源：客户反馈</span></div>
+            </div>
+          </section>
+
+          <section class="inspector-block">
+            <div class="inspector-heading"><h3>事实边界</h3><span>3 项需确认</span></div>
+            <div class="judgement-list">
+              <div class="judgement-row">
+                <div class="judgement-copy"><strong>知识库同步为异步任务</strong><span>来源：7 月 30 日研发评审记录</span></div>
+                <select class="judgement-select status-fact" aria-label="知识库异步任务的判定"><option selected>事实</option><option>推断</option><option>待确认</option></select>
+              </div>
+              <div class="judgement-row">
+                <div class="judgement-copy"><strong>V1 未展示同步状态</strong><span>来源：Agent 原型检查</span></div>
+                <select class="judgement-select status-inference" aria-label="V1 同步状态的判定"><option>事实</option><option selected>推断</option><option>待确认</option></select>
+              </div>
+              <div class="judgement-row">
+                <div class="judgement-copy"><strong>资料过期时仍允许发送</strong><span>需要产品经理确认实际规则</span></div>
+                <select class="judgement-select status-pending" aria-label="资料过期发送规则的判定"><option>事实</option><option>推断</option><option selected>待确认</option></select>
+              </div>
+            </div>
+          </section>
+
+          <section class="inspector-block">
+            <div class="coach-note"><span class="label">Agent 建议 · 等待人的决定</span>这不是单纯的提示文案问题。你需要先确认：资料过期时，客服是否仍被允许发送？这个决定会同时影响交互和验收条件。</div>
+          </section>
+
+          <section class="inspector-block">
+            <div class="inspector-heading"><h3>结构化动作</h3><span>PM 最终操作</span></div>
+            <div class="actions">
+              <button class="action-btn primary" data-action="开始处理">开始处理</button>
+              <button class="action-btn" data-action="发起澄清">发起澄清</button>
+              <button class="action-btn" data-action="延后">延后</button>
+              <button class="action-btn" data-action="接受风险">接受风险</button>
+              <button class="action-btn" data-action="标记待验证">标记待验证</button>
+              <button class="action-btn" data-action="关闭问题">关闭问题</button>
+            </div>
+          </section>
+        </div>
+
+        <section id="trailPanel" class="trail-panel" aria-hidden="true">
+          <div class="trail-head"><h2>Agent 调查轨迹</h2><button id="trailClose" class="trail-close" aria-label="关闭调查轨迹">×</button></div>
+          <div class="trail-intro">只记录可核验的行动摘要与工具结果，不展示隐含思维链。以下材料共同构成 ISS-014。</div>
+          <div class="trail-steps">
+            <div class="trail-step"><div class="step-no">01</div><div class="step-content"><span class="step-kind">检索</span><p>已检索《7 月 28 日客户会议纪要》，定位到“知识库更新延迟”反馈。</p><span class="step-result">结果：E01 已关联</span></div></div>
+            <div class="trail-step"><div class="step-no">02</div><div class="step-content"><span class="step-kind">检查</span><p>已检查 V1「客服工作台」，回复区未发现同步状态和最近更新时间。</p><span class="step-result">结果：E02 待人确认</span></div></div>
+            <div class="trail-step"><div class="step-no">03</div><div class="step-content"><span class="step-kind">对照</span><p>已对照《7 月 30 日研发评审记录》，确认异步同步属于已知技术约束。</p><span class="step-result">结果：E03 已关联</span></div></div>
+            <div class="trail-step"><div class="step-no">04</div><div class="step-content"><span class="step-kind">生成草稿</span><p>已生成问题草稿 ISS-014，等待产品经理确认事实和处理方式。</p><span class="step-result">结果：等待人的决定</span></div></div>
+          </div>
+          <div class="trail-wait">下一步：确认“资料过期时是否仍允许发送”，再决定修改方式与 V2 验证条件。</div>
+        </section>
+      </aside>
+    </div>
+  </main>
+
+  <script>
+    const evidenceData = {
+      e1: {
+        id: 'E01',
+        quote: '「知识库更新后，客服回复中的部分信息与实际政策不一致，用户没有被告知可能延迟，导致误解和投诉。」',
+        source: '《7 月 28 日客户会议纪要》· 客户反馈',
+        path: 'V1 / 客服工作台 / 回复生成区'
+      },
+      e2: {
+        id: 'E02',
+        quote: 'V1 仅显示“基于知识库生成”，没有同步状态、最近更新时间或过期提示。',
+        source: 'Agent 原型检查 · 待产品经理确认',
+        path: 'V1 / 客服工作台 / 回复生成区'
+      },
+      e3: {
+        id: 'E03',
+        quote: '「知识库同步为异步任务，更新完成时间不能保证；前端必须展示同步状态和最近更新时间。」',
+        source: '《7 月 30 日研发评审记录》· 研发反馈',
+        path: 'V1 / 客服工作台 / 回复生成区'
+      }
+    };
+
+    const versionStates = {
+      V1: { text: '当前选择 V1：ISS-014 的验证条件尚未满足。', gap: '当前界面只显示「基于知识库生成」，没有同步状态、最近更新时间或资料过期提示；客服仍可直接发送。' },
+      V2: { text: '当前选择 V2：用于验证知识状态、最近更新时间与发送限制。', gap: 'V2 验证位：检查是否显示知识状态和最近更新时间；同步中或资料过期时是否出现明确提示。' },
+      V3: { text: '当前选择 V3：ISS-014 仍需基于相同验证条件复核。', gap: '版本切换不会自动关闭问题。请重新核验资料状态提示与高风险发送限制。' },
+      V4: { text: '当前选择 V4：ISS-014 仍需产品经理确认后才能关闭。', gap: '即使界面已修改，也必须留下验证依据；Agent 不能代替产品经理关闭问题。' }
+    };
+
+    const evidenceButtons = document.querySelectorAll('.evidence-button, .node[data-node^="e"]');
+    const edges = document.querySelectorAll('.edge[data-edge]');
+    const edgeLabels = document.querySelectorAll('.edge-label[data-label]');
+    const evidenceNodes = document.querySelectorAll('.node[data-node^="e"]');
+    const relatedNodes = document.querySelectorAll('.node-claim, .node-decision, .node-verify');
+    const selectedEvidenceId = document.getElementById('selectedEvidenceId');
+    const selectedQuote = document.getElementById('selectedQuote');
+    const selectedSource = document.getElementById('selectedSource');
+    const selectedPath = document.getElementById('selectedPath');
+
+    function selectEvidence(key) {
+      const item = evidenceData[key];
+      document.querySelectorAll('.evidence-button').forEach(button => button.classList.toggle('active', button.dataset.evidence === key));
+      evidenceNodes.forEach(node => {
+        const isActive = node.dataset.node === key;
+        node.classList.toggle('active', isActive);
+        node.classList.toggle('dim', !isActive);
+      });
+      edges.forEach(edge => {
+        const isMatch = edge.dataset.edge === key || edge.classList.contains('related');
+        edge.classList.toggle('active', isMatch);
+        edge.classList.toggle('dim', !isMatch);
+        edge.setAttribute('marker-end', isMatch ? 'url(#arrowRed)' : 'url(#arrowGrey)');
+      });
+      edgeLabels.forEach(label => label.classList.toggle('active', label.dataset.label === key || label.x.baseVal.value > 560));
+      relatedNodes.forEach(node => node.classList.add('related'));
+      selectedEvidenceId.textContent = item.id;
+      selectedQuote.textContent = item.quote;
+      selectedSource.textContent = item.source;
+      selectedPath.textContent = item.path;
+    }
+
+    evidenceButtons.forEach(button => {
+      button.addEventListener('click', () => selectEvidence(button.dataset.evidence || button.dataset.node));
+    });
+
+    const viewButtons = document.querySelectorAll('.view-btn');
+    const mapView = document.getElementById('mapView');
+    const prototypeView = document.getElementById('prototypeView');
+
+    function switchView(view) {
+      const isMap = view === 'map';
+      mapView.classList.toggle('active', isMap);
+      prototypeView.classList.toggle('active', !isMap);
+      viewButtons.forEach(button => {
+        const active = button.dataset.view === view;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-pressed', String(active));
+      });
+    }
+
+    viewButtons.forEach(button => button.addEventListener('click', () => switchView(button.dataset.view)));
+    document.getElementById('locateButton').addEventListener('click', () => switchView('prototype'));
+
+    const versionSelect = document.getElementById('versionSelect');
+    versionSelect.addEventListener('change', event => {
+      const version = event.target.value;
+      document.getElementById('prototypeVersionTitle').textContent = version;
+      document.getElementById('protoVersionLabel').textContent = `PROTOTYPE ${version}`;
+      document.getElementById('versionMessage').textContent = versionStates[version].text;
+      document.getElementById('knowledgeGap').textContent = versionStates[version].gap;
+      showToast(`已切换到 ${version}`, '版本切换只改变核验对象，不会自动改变问题状态。');
+    });
+
+    const trailToggle = document.getElementById('trailToggle');
+    const trailPanel = document.getElementById('trailPanel');
+    const trailClose = document.getElementById('trailClose');
+
+    function setTrail(open) {
+      trailPanel.classList.toggle('open', open);
+      trailPanel.setAttribute('aria-hidden', String(!open));
+      trailToggle.setAttribute('aria-expanded', String(open));
+      if (open) trailClose.focus();
+    }
+
+    trailToggle.addEventListener('click', () => setTrail(trailToggle.getAttribute('aria-expanded') !== 'true'));
+    trailClose.addEventListener('click', () => setTrail(false));
+
+    document.querySelectorAll('.judgement-select').forEach(select => {
+      select.addEventListener('change', event => {
+        select.classList.remove('status-fact', 'status-inference', 'status-pending');
+        const className = event.target.value === '事实' ? 'status-fact' : event.target.value === '推断' ? 'status-inference' : 'status-pending';
+        select.classList.add(className);
+        showToast(`已标记为「${event.target.value}」`, '该判定已留在事实边界中；关闭问题前仍需核对依据与验证条件。');
+      });
+    });
+
+    document.querySelectorAll('.action-btn').forEach(button => {
+      button.addEventListener('click', () => {
+        const action = button.dataset.action;
+        let message = '操作已记录，当前问题仍保留证据与验证条件。';
+        if (action === '关闭问题') message = '关闭前必须确认 V2 验证条件并保留依据；本原型不会直接替你关闭。';
+        if (action === '接受风险') message = '接受风险需要补充允许发送的依据与责任边界；当前仍等待确认。';
+        if (action === '发起澄清') message = '已准备澄清项：资料过期时，客服是否仍被允许发送？';
+        showToast(action, message);
+      });
+    });
+
+    const toast = document.getElementById('toast');
+    let toastTimer;
+    function showToast(title, text) {
+      document.getElementById('toastTitle').textContent = title;
+      document.getElementById('toastText').textContent = text;
+      toast.classList.add('show');
+      window.clearTimeout(toastTimer);
+      toastTimer = window.setTimeout(() => toast.classList.remove('show'), 2800);
+    }
+  </script>
+</body>
+</html>

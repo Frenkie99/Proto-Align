@@ -1,0 +1,682 @@
+<!--
+  设计假设
+  1. 这是 1440×1024 的单人内部评审工作台，使用者会从问题队列进入，而不是先浏览抽象仪表盘。
+  2. ISS-014 是本轮完整评审对象；其余问题只呈现任务书已给出的来源、状态和原型关联，避免补造证据。
+  3. 原型局部是“客服工作台 / 回复生成区”的可验证定位图，不承担真实客服产品演示。
+
+  核心交互
+  1. 点击左侧问题切换当前问题、原型定位和可执行动作上下文。
+  2. 版本下拉支持 V1–V4，并让原型中的知识库状态、风险提示与批注同步变化。
+  3. 右侧 Agent 活动记录可展开/收起，只展示检索、检查、对照、生成草稿等可核验结果。
+  4. 六种结构化动作会改变“当前决定”；“接受风险 / 关闭问题”必须填写依据后才能确认。
+
+  色彩论证
+  暖灰纸白 #F3F1EC 是调查桌的底色；主文字 #171715、次级文字 #6B6962 与规则线 #D6D2C8
+  建立编辑台层级。唯一彩色强调为氧化朱红 #C24F35，只用于阻塞、选中、原型批注和关键动作，
+  让颜色承担评审批注语义，而不是装饰或技术感包装。
+-->
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ProtoAlign · 问题指挥台</title>
+  <style>
+    :root {
+      --paper: #F3F1EC;
+      --surface: #F7F7F5;
+      --ink: #171715;
+      --muted: #6B6962;
+      --line: #D6D2C8;
+      --line-dark: #BEB9AE;
+      --accent: #C24F35;
+      --accent-soft: #F2E4DF;
+      --dark: #252421;
+      --white: #FFFEFB;
+      --sans: Geist, "IBM Plex Sans", "PingFang SC", "Noto Sans SC", sans-serif;
+      --mono: "Geist Mono", "IBM Plex Mono", ui-monospace, monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-width: 1180px; min-height: 760px; background: #E7E4DD; color: var(--ink); }
+    body { font-family: var(--sans); overflow: auto; }
+    button, select, textarea { font: inherit; color: inherit; }
+    button, select { -webkit-tap-highlight-color: transparent; }
+
+    .app {
+      width: 1440px;
+      height: 1024px;
+      margin: 0 auto;
+      overflow: hidden;
+      background: var(--surface);
+      border-inline: 1px solid var(--line-dark);
+    }
+
+    .topbar {
+      height: 64px;
+      display: grid;
+      grid-template-columns: 296px 1fr auto;
+      align-items: stretch;
+      background: var(--paper);
+      border-bottom: 1px solid var(--line-dark);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 13px;
+      padding: 0 20px;
+      border-right: 1px solid var(--line);
+    }
+
+    .brand-mark {
+      width: 26px;
+      height: 26px;
+      position: relative;
+      border: 1px solid var(--ink);
+    }
+    .brand-mark::before, .brand-mark::after {
+      content: "";
+      position: absolute;
+      background: var(--accent);
+    }
+    .brand-mark::before { width: 12px; height: 2px; left: 6px; top: 7px; }
+    .brand-mark::after { width: 2px; height: 12px; left: 11px; top: 7px; }
+    .brand strong { display: block; font-size: 14px; letter-spacing: -.01em; }
+    .brand span { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
+
+    .project-bar {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      padding: 0 22px;
+      min-width: 0;
+    }
+    .project-title { font-size: 15px; font-weight: 650; white-space: nowrap; }
+    .crumb { color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .gate {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-left: 18px;
+      border-left: 1px solid var(--line);
+      white-space: nowrap;
+    }
+    .gate-label { color: var(--muted); font-size: 11px; }
+    .gate-value { color: var(--accent); font-size: 13px; font-weight: 700; }
+    .gate-value::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 7px; background: var(--accent); }
+
+    .version-wrap {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 0 20px;
+      border-left: 1px solid var(--line);
+    }
+    .version-wrap label { color: var(--muted); font-size: 11px; }
+    select {
+      height: 34px;
+      min-width: 86px;
+      border: 1px solid var(--line-dark);
+      border-radius: 4px;
+      background: var(--white);
+      padding: 0 30px 0 10px;
+      font-family: var(--mono);
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .workspace { height: 960px; display: grid; grid-template-columns: 296px 802px 342px; }
+
+    /* 问题队列 */
+    .queue {
+      display: flex;
+      min-height: 0;
+      flex-direction: column;
+      background: var(--paper);
+      border-right: 1px solid var(--line-dark);
+    }
+    .queue-head { height: 90px; padding: 18px 19px 14px; border-bottom: 1px solid var(--line); }
+    .section-kicker { font-family: var(--mono); font-size: 10px; letter-spacing: .09em; color: var(--muted); text-transform: uppercase; }
+    .queue-title-row { display: flex; align-items: end; justify-content: space-between; margin-top: 9px; }
+    .queue h2 { margin: 0; font-size: 20px; line-height: 1; letter-spacing: -.03em; }
+    .queue-count { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+
+    .issue-list { margin: 0; padding: 0; list-style: none; }
+    .issue-row {
+      width: 100%;
+      min-height: 130px;
+      display: grid;
+      grid-template-columns: 4px 1fr;
+      padding: 0;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+    }
+    .issue-row .rail { background: transparent; transition: background 180ms ease; }
+    .issue-row .issue-inner { padding: 15px 18px 14px 15px; transition: background 180ms ease; }
+    .issue-row:hover .issue-inner { background: rgba(255,255,255,.44); }
+    .issue-row.active .rail { background: var(--accent); }
+    .issue-row.active .issue-inner { background: var(--white); }
+    .issue-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+    .issue-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .issue-id { font-family: var(--mono); font-size: 11px; font-weight: 700; }
+    .issue-state { color: var(--muted); font-size: 11px; }
+    .issue-row.active .issue-state { color: var(--accent); font-weight: 650; }
+    .issue-name { margin-top: 10px; font-size: 14px; line-height: 1.45; font-weight: 650; text-wrap: pretty; }
+    .issue-meta { display: flex; flex-wrap: wrap; gap: 5px 12px; margin-top: 11px; color: var(--muted); font-size: 11px; line-height: 1.35; }
+    .issue-meta .ai { border-bottom: 1px dashed var(--muted); }
+
+    .queue-foot { margin-top: auto; padding: 18px 19px 20px; border-top: 1px solid var(--line); }
+    .queue-foot p { margin: 9px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+    .legend { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+    .legend-line { width: 18px; height: 2px; background: var(--accent); }
+
+    /* 中央调查工作面 */
+    .command { min-width: 0; background: var(--surface); }
+    .issue-head {
+      height: 142px;
+      padding: 20px 24px 18px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 18px;
+    }
+    .head-meta { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 11px; }
+    .head-meta code { font-family: var(--mono); font-size: 11px; color: var(--ink); }
+    .severity { padding: 3px 7px; border: 1px solid var(--accent); color: var(--accent); font-weight: 700; }
+    .issue-head h1 { margin: 10px 0 0; max-width: 610px; font-size: 26px; line-height: 1.24; letter-spacing: -.035em; text-wrap: balance; }
+    .head-location { margin-top: 11px; color: var(--muted); font-size: 12px; }
+    .head-stamp { align-self: start; padding: 7px 9px; border: 1px solid var(--line-dark); font-family: var(--mono); font-size: 10px; color: var(--muted); }
+
+    .investigation {
+      height: 446px;
+      display: grid;
+      grid-template-columns: 448px 354px;
+      border-top: 1px solid var(--line-dark);
+      border-bottom: 1px solid var(--line-dark);
+    }
+    .prototype-pane { padding: 17px 18px 18px 24px; border-right: 1px solid var(--line); }
+    .pane-heading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 13px; }
+    .pane-heading h3 { margin: 0; font-size: 14px; }
+    .pane-note { color: var(--muted); font-size: 10px; font-family: var(--mono); }
+
+    .prototype {
+      height: 372px;
+      display: grid;
+      grid-template-columns: 124px 1fr;
+      background: var(--white);
+      border: 1px solid var(--line-dark);
+      overflow: hidden;
+      position: relative;
+    }
+    .proto-side { padding: 13px 10px; border-right: 1px solid var(--line); background: #EFEEE9; }
+    .proto-side strong { font-size: 10px; }
+    .thread { margin-top: 14px; padding: 9px 7px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); font-size: 9px; line-height: 1.5; }
+    .thread span { display: block; margin-top: 3px; color: var(--muted); }
+    .proto-link { margin-top: 15px; font-size: 9px; color: var(--muted); }
+    .proto-main { min-width: 0; display: flex; flex-direction: column; }
+    .proto-top { height: 42px; padding: 0 12px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); font-size: 9px; }
+    .proto-top span:last-child { color: var(--muted); }
+    .conversation { padding: 12px; border-bottom: 1px solid var(--line); font-size: 9px; line-height: 1.55; }
+    .message-label { color: var(--muted); margin-bottom: 4px; }
+    .reply-zone { flex: 1; padding: 12px; position: relative; }
+    .reply-zone::after {
+      content: "01";
+      position: absolute;
+      right: 8px;
+      top: 8px;
+      width: 23px;
+      height: 23px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--accent);
+      color: white;
+      font-family: var(--mono);
+      font-size: 9px;
+      font-weight: 700;
+    }
+    .reply-label { font-size: 9px; color: var(--muted); }
+    .reply-copy { margin-top: 7px; max-width: 236px; font-size: 10px; line-height: 1.55; }
+    .knowledge-state {
+      display: none;
+      margin: 9px 32px 0 0;
+      padding: 7px 8px;
+      border: 1px solid var(--line-dark);
+      font-size: 9px;
+      line-height: 1.45;
+    }
+    .knowledge-state.visible { display: block; animation: reveal 200ms ease; }
+    .knowledge-state.risk { border-color: var(--accent); color: var(--accent); }
+    .missing-state {
+      margin-top: 12px;
+      padding: 7px 8px;
+      border: 1px dashed var(--accent);
+      color: var(--accent);
+      font-size: 9px;
+    }
+    .send-row { margin-top: 12px; display: flex; gap: 6px; }
+    .mini-btn { padding: 6px 9px; border: 1px solid var(--line-dark); background: transparent; font-size: 9px; }
+    .mini-btn.primary { background: var(--dark); border-color: var(--dark); color: var(--white); }
+    .annotation {
+      position: absolute;
+      right: 7px;
+      bottom: 7px;
+      width: 182px;
+      padding: 7px 9px;
+      background: var(--accent);
+      color: white;
+      font-size: 9px;
+      line-height: 1.45;
+      box-shadow: 0 8px 24px rgba(20,18,14,.14);
+    }
+
+    .evidence-pane { padding: 17px 20px 16px; min-width: 0; overflow: hidden; }
+    .evidence-list { margin: 0; padding: 0; list-style: none; }
+    .evidence-item { padding: 11px 0 12px; border-top: 1px solid var(--line); }
+    .evidence-item:first-child { border-top-color: var(--line-dark); }
+    .evidence-source { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 10px; }
+    .evidence-source code { font-family: var(--mono); font-size: 9px; }
+    .evidence-item blockquote { margin: 7px 0 0; font-size: 11px; line-height: 1.55; text-wrap: pretty; }
+    .agent-finding { margin-top: 12px; padding: 11px 0 0 12px; border-left: 2px solid var(--accent); }
+    .agent-finding .label { color: var(--accent); font-size: 10px; font-weight: 700; }
+    .agent-finding p { margin: 6px 0 0; font-size: 11px; line-height: 1.55; }
+
+    .decision { height: 372px; padding: 18px 24px 20px; }
+    .decision-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    .detail-block h3 { margin: 0 0 8px; font-size: 12px; }
+    .detail-block p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+    .validation { margin: 14px 0 0; padding: 11px 0 0; border-top: 1px solid var(--line); }
+    .validation li { margin: 5px 0 0 17px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+    .decision-current {
+      margin-top: 15px;
+      min-height: 48px;
+      display: flex;
+      align-items: center;
+      gap: 13px;
+      padding: 10px 12px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+    }
+    .decision-current .current-label { color: var(--muted); font-size: 10px; white-space: nowrap; }
+    .decision-current strong { font-size: 12px; }
+    .decision-current span:last-child { margin-left: auto; color: var(--muted); font-size: 10px; }
+    .actions { display: grid; grid-template-columns: repeat(6, 1fr); margin-top: 14px; border: 1px solid var(--line-dark); }
+    .action-btn {
+      min-height: 45px;
+      padding: 7px 4px;
+      border: 0;
+      border-right: 1px solid var(--line);
+      background: var(--white);
+      font-size: 10px;
+      cursor: pointer;
+      transition: background 160ms ease, color 160ms ease;
+    }
+    .action-btn:last-child { border-right: 0; }
+    .action-btn:hover { background: var(--paper); }
+    .action-btn.primary { background: var(--accent); color: white; }
+    .action-btn.primary:hover { background: #A9442E; }
+    .action-btn:focus-visible, .activity-toggle:focus-visible, .confirm-btn:focus-visible, .cancel-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+
+    /* Agent 常驻伙伴 */
+    .agent {
+      min-width: 0;
+      background: var(--paper);
+      border-left: 1px solid var(--line-dark);
+      display: flex;
+      flex-direction: column;
+    }
+    .agent-head { height: 92px; padding: 18px 20px; border-bottom: 1px solid var(--line); }
+    .agent-title { margin-top: 8px; display: flex; justify-content: space-between; align-items: center; }
+    .agent-title h2 { margin: 0; font-size: 18px; letter-spacing: -.02em; }
+    .agent-status { color: var(--muted); font-size: 10px; }
+    .agent-status::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; background: var(--ink); }
+
+    .coach { padding: 19px 20px 18px; border-bottom: 1px solid var(--line-dark); }
+    .coach-label { font-family: var(--mono); color: var(--muted); font-size: 9px; letter-spacing: .06em; }
+    .coach p { margin: 11px 0 0; font-size: 14px; line-height: 1.68; text-wrap: pretty; }
+    .coach-question { margin-top: 16px; padding-top: 13px; border-top: 1px solid var(--line); color: var(--accent); font-size: 12px; font-weight: 650; line-height: 1.55; }
+
+    .activity { border-bottom: 1px solid var(--line-dark); }
+    .activity-toggle {
+      width: 100%;
+      height: 50px;
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border: 0;
+      background: transparent;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .activity-toggle:hover { background: rgba(255,255,255,.45); }
+    .toggle-symbol { font-family: var(--mono); font-size: 14px; color: var(--muted); transition: transform 180ms ease; }
+    .activity.open .toggle-symbol { transform: rotate(45deg); }
+    .activity-list { display: none; margin: 0; padding: 0 20px 15px; list-style: none; }
+    .activity.open .activity-list { display: block; animation: reveal 200ms ease; }
+    .activity-item { display: grid; grid-template-columns: 25px 1fr; gap: 9px; padding: 10px 0; border-top: 1px solid var(--line); }
+    .activity-index { font-family: var(--mono); font-size: 9px; color: var(--muted); }
+    .activity-type { font-family: var(--mono); color: var(--accent); font-size: 9px; }
+    .activity-copy { margin-top: 4px; font-size: 10px; line-height: 1.55; }
+
+    .agent-summary { padding: 17px 20px; }
+    .agent-summary h3 { margin: 0; font-size: 12px; }
+    .agent-summary dl { margin: 13px 0 0; }
+    .agent-summary .summary-row { display: grid; grid-template-columns: 78px 1fr; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+    .agent-summary dt { color: var(--muted); font-size: 10px; }
+    .agent-summary dd { margin: 0; font-size: 10px; line-height: 1.45; }
+    .agent-rule { margin-top: auto; padding: 16px 20px 19px; border-top: 1px solid var(--line-dark); color: var(--muted); font-size: 10px; line-height: 1.55; }
+
+    /* 确认浮层 */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(23,23,21,.24);
+    }
+    .modal-backdrop.visible { display: flex; }
+    .modal {
+      width: 430px;
+      padding: 22px;
+      background: var(--white);
+      border: 1px solid var(--line-dark);
+      box-shadow: 0 12px 36px rgba(20,18,14,.12);
+    }
+    .modal .section-kicker { color: var(--accent); }
+    .modal h2 { margin: 10px 0 0; font-size: 20px; }
+    .modal p { margin: 10px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+    .modal textarea { width: 100%; height: 92px; resize: none; margin-top: 15px; padding: 10px; border: 1px solid var(--line-dark); border-radius: 4px; background: var(--paper); font-size: 12px; line-height: 1.5; }
+    .modal-error { min-height: 17px; margin-top: 6px; color: var(--accent); font-size: 10px; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    .cancel-btn, .confirm-btn { min-height: 36px; padding: 0 14px; border: 1px solid var(--line-dark); background: transparent; cursor: pointer; font-size: 11px; }
+    .confirm-btn { border-color: var(--accent); background: var(--accent); color: white; }
+
+    @keyframes reveal { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+    @media (max-width: 1439px), (max-height: 1023px) {
+      .app { margin: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div><strong>ProtoAlign</strong><span>原型对齐助手</span></div>
+      </div>
+      <div class="project-bar">
+        <span class="project-title">AI 客服回复助手</span>
+        <span class="crumb">研发交付前 / 问题指挥台</span>
+        <div class="gate"><span class="gate-label">当前结论</span><span class="gate-value">暂不可交付</span></div>
+      </div>
+      <div class="version-wrap">
+        <label for="versionSelect">原型版本</label>
+        <select id="versionSelect" aria-label="切换原型版本">
+          <option value="V1" selected>V1</option>
+          <option value="V2">V2</option>
+          <option value="V3">V3</option>
+          <option value="V4">V4</option>
+        </select>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <aside class="queue" aria-label="问题队列">
+        <div class="queue-head">
+          <div class="section-kicker">Issue queue</div>
+          <div class="queue-title-row"><h2>问题队列</h2><span class="queue-count">04 项</span></div>
+        </div>
+        <ul class="issue-list">
+          <li><button class="issue-row active" data-id="ISS-014"><span class="rail"></span><span class="issue-inner"><span class="issue-top"><span class="issue-id">ISS-014</span><span class="issue-state">处理中</span></span><span class="issue-name">知识库更新延迟没有被清楚告知</span><span class="issue-meta"><span>客户反馈</span><span>V1 · 回复生成区</span></span></span></button></li>
+          <li><button class="issue-row" data-id="ISS-011"><span class="rail"></span><span class="issue-inner"><span class="issue-top"><span class="issue-id">ISS-011</span><span class="issue-state">待处理</span></span><span class="issue-name">高风险回复缺少人工确认</span><span class="issue-meta"><span>研发反馈</span><span>V1 · 回复操作区</span></span></span></button></li>
+          <li><button class="issue-row" data-id="ISS-016"><span class="rail"></span><span class="issue-inner"><span class="issue-top"><span class="issue-id">ISS-016</span><span class="issue-state">待确认</span></span><span class="issue-name">无法回答时没有失败兜底</span><span class="issue-meta"><span class="ai">AI 推断·待确认</span><span>V1 · 回复生成区</span></span></span></button></li>
+          <li><button class="issue-row" data-id="ISS-018"><span class="rail"></span><span class="issue-inner"><span class="issue-top"><span class="issue-id">ISS-018</span><span class="issue-state">待处理</span></span><span class="issue-name">转人工入口在长对话中不可见</span><span class="issue-meta"><span>客户反馈</span><span>V1 · 会话区</span></span></span></button></li>
+        </ul>
+        <div class="queue-foot">
+          <div class="legend"><span class="legend-line"></span><strong>阻塞交付</strong></div>
+          <p>问题与原型位置、来源证据、当前决定和验证条件保持在同一工作面。</p>
+        </div>
+      </aside>
+
+      <main class="command">
+        <section class="issue-head">
+          <div>
+            <div class="head-meta"><code id="currentId">ISS-014</code><span id="currentSource">客户反馈</span><span class="severity" id="severity">阻塞交付</span><span id="currentState">处理中</span></div>
+            <h1 id="currentTitle">知识库更新延迟没有被清楚告知</h1>
+            <div class="head-location" id="currentLocation">关联：V1 / 客服工作台 / 回复生成区</div>
+          </div>
+          <div class="head-stamp">研发交付前</div>
+        </section>
+
+        <section class="investigation">
+          <div class="prototype-pane">
+            <div class="pane-heading"><h3>原型定位</h3><span class="pane-note" id="prototypeVersion">V1 / 客服工作台</span></div>
+            <div class="prototype" aria-label="客服工作台原型局部">
+              <div class="proto-side">
+                <strong>客服工作台</strong>
+                <div class="thread">用户咨询<span>订单政策问题</span></div>
+                <div class="proto-link">会话区</div>
+                <div class="proto-link">知识库</div>
+              </div>
+              <div class="proto-main">
+                <div class="proto-top"><strong>回复生成区</strong><span>基于知识库生成</span></div>
+                <div class="conversation"><div class="message-label">用户问题</div>请问当前政策是否适用于我的订单？</div>
+                <div class="reply-zone" id="replyZone">
+                  <div class="reply-label">AI 候选回复</div>
+                  <div class="reply-copy">已根据企业知识库生成候选回复，请客服确认后发送。</div>
+                  <div class="missing-state" id="missingState">未显示同步状态、最近更新时间或过期提示</div>
+                  <div class="knowledge-state" id="knowledgeState"></div>
+                  <div class="send-row"><button class="mini-btn">重新生成</button><button class="mini-btn primary" id="sendButton">确认并发送</button></div>
+                  <div class="annotation" id="annotation">V1 缺口：客服无法判断候选回复是否基于过期资料。</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="evidence-pane">
+            <div class="pane-heading"><h3>证据与判断</h3><span class="pane-note">来源可回溯</span></div>
+            <ul class="evidence-list" id="fullEvidence">
+              <li class="evidence-item"><div class="evidence-source"><strong>客户会议纪要</strong><code>7 月 28 日</code></div><blockquote>「知识库更新后，客服回复中的部分信息与实际政策不一致，用户没有被告知可能延迟，导致误解和投诉。」</blockquote></li>
+              <li class="evidence-item"><div class="evidence-source"><strong>研发评审记录</strong><code>7 月 30 日</code></div><blockquote>「知识库同步为异步任务，更新完成时间不能保证；前端必须展示同步状态和最近更新时间。」</blockquote></li>
+            </ul>
+            <div class="agent-finding"><div class="label">Agent 判断</div><p id="agentFinding">客户反馈与研发约束指向同一风险。V1 仅显示“基于知识库生成”，没有同步状态、最近更新时间或过期提示。</p></div>
+          </div>
+        </section>
+
+        <section class="decision">
+          <div class="decision-grid">
+            <div class="detail-block"><h3>影响</h3><p id="impactText">客服可能把基于过期政策生成的回复直接发给用户，造成误解与投诉。</p></div>
+            <div class="detail-block"><h3>建议修改</h3><p id="suggestionText">在回复区域展示知识库同步状态和最近更新时间；资料过期或同步中时给出明确提示；高风险回复进入人工确认。</p></div>
+          </div>
+          <div class="detail-block validation"><h3>验证条件</h3><ul id="validationList"><li>V2 中能看到知识状态与最近更新时间</li><li>同步中或资料过期时出现明确提示</li><li>客服不能在未确认风险时直接发送</li></ul></div>
+          <div class="decision-current" aria-live="polite"><span class="current-label">当前决定</span><strong id="decisionText">处理中 · 等待产品经理确认处理方式</strong><span id="decisionReason">AI 只能提出建议</span></div>
+          <div class="actions" aria-label="结构化状态操作">
+            <button class="action-btn primary" data-action="开始处理">开始处理</button>
+            <button class="action-btn" data-action="发起澄清">发起澄清</button>
+            <button class="action-btn" data-action="延后" data-confirm="true">延后</button>
+            <button class="action-btn" data-action="接受风险" data-confirm="true">接受风险</button>
+            <button class="action-btn" data-action="标记待验证">标记待验证</button>
+            <button class="action-btn" data-action="关闭问题" data-confirm="true">关闭问题</button>
+          </div>
+        </section>
+      </main>
+
+      <aside class="agent" aria-label="Agent 常驻伙伴">
+        <div class="agent-head">
+          <div class="section-kicker">Resident partner</div>
+          <div class="agent-title"><h2>评审 Agent</h2><span class="agent-status">等待确认</span></div>
+        </div>
+        <div class="coach">
+          <div class="coach-label">给产品经理的提示</div>
+          <p>这不是单纯的提示文案问题。你需要先确认：资料过期时，客服是否仍被允许发送？</p>
+          <div class="coach-question">这个决定会同时影响交互和验收条件。</div>
+        </div>
+        <div class="activity open" id="activityPanel">
+          <button class="activity-toggle" id="activityToggle" aria-expanded="true"><span>活动记录</span><span class="toggle-symbol">＋</span></button>
+          <ol class="activity-list">
+            <li class="activity-item"><span class="activity-index">01</span><div><span class="activity-type">检索</span><div class="activity-copy">已检索《7 月 28 日客户会议纪要》，定位到“知识库更新延迟”反馈。</div></div></li>
+            <li class="activity-item"><span class="activity-index">02</span><div><span class="activity-type">检查</span><div class="activity-copy">已检查 V1「客服工作台」，回复区未发现同步状态和最近更新时间。</div></div></li>
+            <li class="activity-item"><span class="activity-index">03</span><div><span class="activity-type">对照</span><div class="activity-copy">已对照《7 月 30 日研发评审记录》，确认异步同步属于已知技术约束。</div></div></li>
+            <li class="activity-item"><span class="activity-index">04</span><div><span class="activity-type">生成草稿</span><div class="activity-copy">已生成问题草稿 ISS-014，等待产品经理确认事实和处理方式。</div></div></li>
+          </ol>
+        </div>
+        <div class="agent-summary">
+          <h3>当前工作上下文</h3>
+          <dl>
+            <div class="summary-row"><dt>确认对象</dt><dd>产品经理</dd></div>
+            <div class="summary-row"><dt>原型页面</dt><dd id="agentLocation">客服工作台 / 回复生成区</dd></div>
+            <div class="summary-row"><dt>当前版本</dt><dd id="agentVersion">V1</dd></div>
+            <div class="summary-row"><dt>等待确认</dt><dd id="agentWaiting">资料过期时是否仍允许客服发送</dd></div>
+          </dl>
+        </div>
+        <div class="agent-rule">Agent 展示行动摘要与工具结果，不展示隐含思维链。事实确认、取舍和关闭权始终由产品经理掌握。</div>
+      </aside>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="modalBackdrop" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal">
+      <div class="section-kicker">Human decision required</div>
+      <h2 id="modalTitle">确认操作</h2>
+      <p id="modalDescription">接受风险或关闭问题前，需要记录依据。AI 只能提出建议，产品经理做最终操作。</p>
+      <textarea id="basisInput" placeholder="填写依据或确认提示" aria-label="操作依据"></textarea>
+      <div class="modal-error" id="modalError"></div>
+      <div class="modal-actions"><button class="cancel-btn" id="cancelModal">取消</button><button class="confirm-btn" id="confirmModal">确认操作</button></div>
+    </div>
+  </div>
+
+  <script>
+    const issues = {
+      "ISS-014": {
+        title: "知识库更新延迟没有被清楚告知", source: "客户反馈", state: "处理中", severity: "阻塞交付",
+        location: "回复生成区", fullLocation: "关联：V1 / 客服工作台 / 回复生成区",
+        impact: "客服可能把基于过期政策生成的回复直接发给用户，造成误解与投诉。",
+        suggestion: "在回复区域展示知识库同步状态和最近更新时间；资料过期或同步中时给出明确提示；高风险回复进入人工确认。",
+        finding: "客户反馈与研发约束指向同一风险。V1 仅显示“基于知识库生成”，没有同步状态、最近更新时间或过期提示。",
+        waiting: "资料过期时是否仍允许客服发送", full: true
+      },
+      "ISS-011": { title: "高风险回复缺少人工确认", source: "研发反馈", state: "待处理", severity: "需确认", location: "回复操作区", fullLocation: "关联：V1 / 客服工作台 / 回复操作区", impact: "高风险回复缺少人工确认。", suggestion: "高风险回复进入人工确认。", finding: "研发反馈指向回复操作区，需要产品经理确认处理方式。", waiting: "高风险回复是否必须人工确认", full: false },
+      "ISS-016": { title: "无法回答时没有失败兜底", source: "AI 推断·待确认", state: "待确认", severity: "待确认", location: "回复生成区", fullLocation: "关联：V1 / 客服工作台 / 回复生成区", impact: "无法回答时没有失败兜底。", suggestion: "发起澄清并标记待验证。", finding: "AI 推断需要产品经理确认事实和处理方式。", waiting: "AI 推断是否符合实际情况", full: false },
+      "ISS-018": { title: "转人工入口在长对话中不可见", source: "客户反馈", state: "待处理", severity: "需确认", location: "会话区", fullLocation: "关联：V1 / 客服工作台 / 会话区", impact: "转人工入口在长对话中不可见。", suggestion: "发起澄清并定义验证条件。", finding: "客户反馈指向会话区，需要产品经理确认处理方式。", waiting: "转人工入口的可见条件", full: false }
+    };
+
+    const versions = {
+      V1: { state: "", note: "V1 缺口：客服无法判断候选回复是否基于过期资料。", send: "确认并发送", risk: true },
+      V2: { state: "知识库状态：同步中 · 最近更新时间：同步完成后显示", note: "V2 验证：状态和最近更新时间已经进入回复区域。", send: "确认风险后发送", risk: true },
+      V3: { state: "资料可能过期 · 发送前需人工确认", note: "V3 验证：过期提示与人工确认形成发送前置条件。", send: "人工确认后发送", risk: true },
+      V4: { state: "知识库状态：已同步 · 最近更新时间：由系统返回", note: "V4 验证：同步状态、更新时间和发送条件可同时核验。", send: "确认并发送", risk: false }
+    };
+
+    let activeIssue = "ISS-014";
+    let pendingAction = "";
+
+    const byId = (id) => document.getElementById(id);
+
+    function setIssue(id) {
+      activeIssue = id;
+      const issue = issues[id];
+      document.querySelectorAll(".issue-row").forEach(row => row.classList.toggle("active", row.dataset.id === id));
+      byId("currentId").textContent = id;
+      byId("currentSource").textContent = issue.source;
+      byId("currentState").textContent = issue.state;
+      byId("severity").textContent = issue.severity;
+      byId("currentTitle").textContent = issue.title;
+      byId("currentLocation").textContent = issue.fullLocation;
+      byId("impactText").textContent = issue.impact;
+      byId("suggestionText").textContent = issue.suggestion;
+      byId("agentFinding").textContent = issue.finding;
+      byId("agentLocation").textContent = `客服工作台 / ${issue.location}`;
+      byId("agentWaiting").textContent = issue.waiting;
+      byId("fullEvidence").style.display = issue.full ? "block" : "none";
+      byId("validationList").innerHTML = issue.full
+        ? "<li>V2 中能看到知识状态与最近更新时间</li><li>同步中或资料过期时出现明确提示</li><li>客服不能在未确认风险时直接发送</li>"
+        : "<li>确认事实和处理方式</li><li>标记待验证后定义验证条件</li>";
+      byId("decisionText").textContent = `${issue.state} · 等待产品经理确认处理方式`;
+      byId("decisionReason").textContent = "AI 只能提出建议";
+      byId("annotation").textContent = `${id} 定位：客服工作台 / ${issue.location}`;
+    }
+
+    function setVersion(version) {
+      const config = versions[version];
+      byId("prototypeVersion").textContent = `${version} / 客服工作台`;
+      byId("agentVersion").textContent = version;
+      byId("knowledgeState").textContent = config.state;
+      byId("knowledgeState").classList.toggle("visible", Boolean(config.state));
+      byId("knowledgeState").classList.toggle("risk", config.risk && Boolean(config.state));
+      byId("missingState").style.display = version === "V1" ? "block" : "none";
+      byId("annotation").textContent = activeIssue === "ISS-014" ? config.note : `${activeIssue} 定位：客服工作台 / ${issues[activeIssue].location}`;
+      byId("sendButton").textContent = config.send;
+      byId("sendButton").style.background = config.risk ? "var(--accent)" : "var(--dark)";
+    }
+
+    function applyAction(action, reason = "") {
+      const stateMap = {
+        "开始处理": "处理中 · 已由产品经理开始处理",
+        "发起澄清": "待确认 · 已发起澄清",
+        "延后": "已延后 · 需要记录下一步",
+        "接受风险": "已接受风险 · 产品经理已记录依据",
+        "标记待验证": "待验证 · 进入跨版本验证",
+        "关闭问题": "已关闭 · 产品经理已记录依据"
+      };
+      byId("decisionText").textContent = stateMap[action];
+      const nextStepMap = {
+        "开始处理": "下一步：确认事实和处理方式",
+        "发起澄清": "下一步：等待确认对象回复",
+        "标记待验证": "下一步：切换版本验证条件"
+      };
+      byId("decisionReason").textContent = reason || nextStepMap[action] || `操作：${action}`;
+    }
+
+    document.querySelectorAll(".issue-row").forEach(row => row.addEventListener("click", () => setIssue(row.dataset.id)));
+    byId("versionSelect").addEventListener("change", event => setVersion(event.target.value));
+
+    byId("activityToggle").addEventListener("click", () => {
+      const panel = byId("activityPanel");
+      panel.classList.toggle("open");
+      byId("activityToggle").setAttribute("aria-expanded", panel.classList.contains("open"));
+    });
+
+    document.querySelectorAll(".action-btn").forEach(button => button.addEventListener("click", () => {
+      const action = button.dataset.action;
+      if (button.dataset.confirm) {
+        pendingAction = action;
+        byId("modalTitle").textContent = `${action} · 需要人的确认`;
+        byId("modalDescription").textContent = action === "延后"
+          ? "延后前，需要记录依据和下一步。AI 只能提出建议，产品经理做最终操作。"
+          : "接受风险或关闭问题前，需要记录依据。AI 只能提出建议，产品经理做最终操作。";
+        byId("basisInput").value = "";
+        byId("modalError").textContent = "";
+        byId("modalBackdrop").classList.add("visible");
+        window.setTimeout(() => byId("basisInput").focus(), 0);
+      } else {
+        applyAction(action);
+      }
+    }));
+
+    byId("cancelModal").addEventListener("click", () => byId("modalBackdrop").classList.remove("visible"));
+    byId("confirmModal").addEventListener("click", () => {
+      const basis = byId("basisInput").value.trim();
+      if (!basis) {
+        byId("modalError").textContent = "请先填写依据，再由产品经理确认操作。";
+        return;
+      }
+      applyAction(pendingAction, `依据：${basis}`);
+      byId("modalBackdrop").classList.remove("visible");
+    });
+    byId("modalBackdrop").addEventListener("click", event => {
+      if (event.target === byId("modalBackdrop")) byId("modalBackdrop").classList.remove("visible");
+    });
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape") byId("modalBackdrop").classList.remove("visible");
+    });
+  </script>
+</body>
+</html>

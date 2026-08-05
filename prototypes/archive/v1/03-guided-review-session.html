@@ -1,0 +1,1330 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ProtoAlign · 引导式评审会</title>
+  <!--
+    设计假设：
+    1. 用户进入的是一场必须完成的单问题评审，而不是项目仪表盘；ISS-014 是本次唯一主议题。
+    2. 四个编号检查点按「理解 → 确认 → 取舍 → 验证」推进，其他问题仅收在侧边抽屉中，避免并行干扰。
+    3. Agent 是主持人：持续说明当前阶段、已调用资料以及正在等待的人工确认，不替用户作最终决定。
+
+    核心交互：
+    - 点击四个检查点或前后控制键切换阶段；每步都更新主持人提示与等待确认。
+    - 结构化选择并“记录决定”；接受风险与关闭问题会出现依据确认层。
+    - 版本下拉可切换 V1 / V2 / V3 / V4，并即时更新右侧原型局部与版本说明。
+    - “调用资料”“活动记录”“其他问题”均可展开，证据保持可回溯但不挤占主流程。
+
+    色彩论证：
+    - 舞台使用中性炭黑 #151515 与层级灰，规避蓝黑科技模板和玻璃拟态。
+    - 氧化朱红 #C24F35 是唯一强调色，只用于当前检查点、阻塞状态和可执行确认，呼应评审批注语义。
+    - 米白文字与暖灰规则线构成机械控制台式对比；无渐变、无霓虹、无装饰性发光。
+  -->
+  <style>
+    :root {
+      --bg: #151515;
+      --panel: #1b1b1a;
+      --panel-2: #20201f;
+      --panel-3: #252523;
+      --line: #34322e;
+      --line-strong: #4a4741;
+      --text: #f2f0ea;
+      --muted: #aaa69d;
+      --faint: #77736c;
+      --accent: #c24f35;
+      --accent-dark: #8f3928;
+      --paper: #e8e4da;
+      --ink: #171715;
+      --sans: Geist, "IBM Plex Sans", "PingFang SC", "Noto Sans SC", sans-serif;
+      --mono: "Geist Mono", "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      min-width: 1160px;
+      min-height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #0f0f0f;
+      color: var(--text);
+      font-family: var(--sans);
+    }
+
+    button, select, textarea { font: inherit; }
+
+    button, select {
+      outline: none;
+    }
+
+    button:focus-visible, select:focus-visible, textarea:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    button { color: inherit; }
+
+    .app {
+      width: 1440px;
+      height: 1024px;
+      margin: 0 auto;
+      overflow: clip;
+      background: var(--bg);
+      border-left: 1px solid #262624;
+      border-right: 1px solid #262624;
+    }
+
+    .topbar {
+      height: 64px;
+      display: grid;
+      grid-template-columns: 252px 1fr auto;
+      align-items: center;
+      border-bottom: 1px solid var(--line);
+      background: #171716;
+    }
+
+    .brand {
+      height: 64px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 18px;
+      border-right: 1px solid var(--line);
+    }
+
+    .brand-mark {
+      width: 27px;
+      height: 27px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line-strong);
+      color: var(--accent);
+      font: 700 11px var(--mono);
+      letter-spacing: -.03em;
+    }
+
+    .brand-name {
+      font-size: 14px;
+      font-weight: 650;
+      letter-spacing: .01em;
+    }
+
+    .brand-sub {
+      margin-top: 2px;
+      color: var(--faint);
+      font: 10px var(--mono);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .session-title {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-width: 0;
+      padding: 0 20px;
+    }
+
+    .session-title strong {
+      font-size: 15px;
+      font-weight: 620;
+      white-space: nowrap;
+    }
+
+    .session-id {
+      color: var(--muted);
+      font: 11px var(--mono);
+      white-space: nowrap;
+    }
+
+    .gate {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: auto;
+      padding: 6px 9px;
+      border: 1px solid #633829;
+      color: #e7aa97;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .gate-dot { width: 6px; height: 6px; background: var(--accent); }
+
+    .top-actions {
+      height: 64px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 18px;
+      border-left: 1px solid var(--line);
+    }
+
+    .select-wrap { position: relative; }
+
+    .select-wrap::after {
+      content: "";
+      position: absolute;
+      right: 11px;
+      top: 50%;
+      width: 6px;
+      height: 6px;
+      border-right: 1px solid var(--text);
+      border-bottom: 1px solid var(--text);
+      transform: translateY(-70%) rotate(45deg);
+      pointer-events: none;
+    }
+
+    #versionSelect {
+      height: 34px;
+      min-width: 116px;
+      appearance: none;
+      padding: 0 34px 0 10px;
+      border: 1px solid var(--line-strong);
+      border-radius: 0;
+      background: #1e1e1d;
+      color: var(--text);
+      font: 12px var(--mono);
+      cursor: pointer;
+    }
+
+    .tiny-action {
+      height: 34px;
+      padding: 0 12px;
+      border: 1px solid var(--line-strong);
+      background: transparent;
+      color: var(--muted);
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .tiny-action:hover { border-color: #706c64; color: var(--text); }
+
+    .workspace {
+      height: 960px;
+      display: grid;
+      grid-template-columns: 252px 826px 362px;
+    }
+
+    .workspace > * { min-height: 0; }
+
+    .rail {
+      position: relative;
+      overflow: hidden;
+      border-right: 1px solid var(--line);
+      background: #181817;
+    }
+
+    .rail-head {
+      height: 104px;
+      padding: 19px 18px 16px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .eyebrow {
+      color: var(--faint);
+      font: 10px var(--mono);
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    .rail-head h2 {
+      margin: 8px 0 0;
+      font-size: 18px;
+      font-weight: 620;
+      letter-spacing: -.02em;
+    }
+
+    .issue-pin {
+      padding: 18px;
+      border-bottom: 1px solid var(--line);
+      background: #1c1c1b;
+    }
+
+    .issue-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: var(--muted);
+      font: 11px var(--mono);
+    }
+
+    .issue-status { color: #e4a28f; }
+
+    .issue-pin h3 {
+      margin: 11px 0 9px;
+      font-size: 15px;
+      line-height: 1.45;
+      font-weight: 620;
+    }
+
+    .issue-source {
+      color: var(--faint);
+      font-size: 12px;
+    }
+
+    .step-list { padding: 15px 0 0; }
+
+    .step-button {
+      width: 100%;
+      min-height: 76px;
+      display: grid;
+      grid-template-columns: 38px 1fr 14px;
+      gap: 10px;
+      align-items: center;
+      padding: 0 18px;
+      border: 0;
+      border-bottom: 1px solid #292927;
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .step-button:hover { background: #1c1c1b; }
+
+    .step-no {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line-strong);
+      color: var(--muted);
+      font: 11px var(--mono);
+    }
+
+    .step-name { display: block; font-size: 14px; font-weight: 580; }
+    .step-desc { display: block; margin-top: 4px; color: var(--faint); font-size: 11px; }
+
+    .step-state {
+      width: 9px;
+      height: 9px;
+      border: 1px solid #5d5952;
+      border-radius: 50%;
+    }
+
+    .step-button.active {
+      background: var(--paper);
+      color: var(--ink);
+    }
+
+    .step-button.active .step-no {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .step-button.active .step-desc { color: #6b6962; }
+    .step-button.active .step-state { border-color: var(--accent); background: var(--accent); }
+
+    .step-button.completed .step-state {
+      border-color: #88837a;
+      background: #88837a;
+      box-shadow: inset 0 0 0 2px #181817;
+    }
+
+    .queue-toggle {
+      position: absolute;
+      left: 18px;
+      right: 18px;
+      bottom: 18px;
+      height: 46px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 13px;
+      border: 1px solid var(--line-strong);
+      background: #1d1d1c;
+      color: var(--text);
+      cursor: pointer;
+    }
+
+    .queue-toggle:hover { border-color: #706c64; }
+    .queue-toggle span:last-child { color: var(--muted); font: 11px var(--mono); }
+
+    .queue-drawer {
+      position: absolute;
+      inset: 104px 0 0;
+      z-index: 6;
+      display: flex;
+      flex-direction: column;
+      background: #1b1b1a;
+      transform: translateX(-100%);
+      transition: transform 220ms ease;
+    }
+
+    .queue-drawer.open { transform: translateX(0); }
+
+    .drawer-head {
+      height: 62px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .drawer-head strong { font-size: 14px; }
+    .icon-button { border: 0; background: transparent; color: var(--muted); font: 18px var(--mono); cursor: pointer; }
+
+    .queue-item {
+      padding: 17px 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .queue-item .id { color: var(--muted); font: 10px var(--mono); }
+    .queue-item h4 { margin: 8px 0 7px; font-size: 13px; line-height: 1.45; font-weight: 580; }
+    .queue-item p { margin: 0; color: var(--faint); font-size: 11px; line-height: 1.5; }
+
+    .session-main {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      background: #1c1c1b;
+    }
+
+    .phase-strip {
+      height: 50px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      border-bottom: 1px solid var(--line);
+      background: #181817;
+    }
+
+    .phase-segment {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 0 14px;
+      border-right: 1px solid var(--line);
+      color: var(--faint);
+      font-size: 11px;
+    }
+
+    .phase-segment:last-child { border-right: 0; }
+    .phase-segment b { font: 10px var(--mono); font-weight: 500; }
+    .phase-segment.active { color: var(--text); background: #222220; }
+    .phase-segment.active::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--accent); }
+
+    .stage-header {
+      min-height: 154px;
+      padding: 25px 28px 21px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .stage-kicker {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: var(--accent);
+      font: 11px var(--mono);
+      letter-spacing: .08em;
+    }
+
+    .timebox { color: var(--faint); letter-spacing: 0; }
+
+    .stage-header h1 {
+      margin: 13px 0 7px;
+      max-width: 620px;
+      font-size: 28px;
+      font-weight: 620;
+      letter-spacing: -.035em;
+      line-height: 1.18;
+    }
+
+    .stage-intro {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.62;
+    }
+
+    .stage-body {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 22px 28px 120px;
+      scrollbar-width: thin;
+      scrollbar-color: #4b4842 transparent;
+    }
+
+    .stage-panel { display: none; animation: stageIn 190ms ease-out; }
+    .stage-panel.active { display: block; }
+
+    @keyframes stageIn {
+      from { opacity: 0; transform: translateY(5px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .block-label {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 0 0 11px;
+      color: var(--muted);
+      font: 10px var(--mono);
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+
+    .block-label::after { content: ""; height: 1px; flex: 1; background: var(--line); }
+
+    .impact-box {
+      display: grid;
+      grid-template-columns: 116px 1fr;
+      margin-bottom: 20px;
+      border: 1px solid var(--line-strong);
+      background: #20201f;
+    }
+
+    .impact-type {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-right: 1px solid var(--line-strong);
+      color: #efb09e;
+      font: 11px var(--mono);
+    }
+
+    .impact-copy { padding: 15px 17px; font-size: 14px; line-height: 1.65; }
+
+    .evidence-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 21px;
+    }
+
+    .evidence-card {
+      min-height: 124px;
+      padding: 14px 15px;
+      border: 1px solid var(--line);
+      background: #191918;
+    }
+
+    .evidence-top { display: flex; align-items: center; justify-content: space-between; color: var(--muted); font: 10px var(--mono); }
+    .evidence-card p { margin: 13px 0 0; color: #cbc7bd; font-size: 13px; line-height: 1.65; }
+
+    .prompt-box {
+      padding: 18px;
+      border-top: 2px solid var(--accent);
+      background: var(--paper);
+      color: var(--ink);
+    }
+
+    .prompt-box .prompt-no { color: #7b756c; font: 10px var(--mono); letter-spacing: .1em; }
+    .prompt-box h3 { margin: 10px 0 13px; font-size: 17px; line-height: 1.45; font-weight: 650; }
+
+    .choice-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .choice-row.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+    .choice {
+      min-height: 48px;
+      padding: 10px 12px;
+      border: 1px solid #bcb6aa;
+      background: transparent;
+      color: #48453f;
+      font-size: 13px;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .choice:hover { border-color: #6f6a62; color: var(--ink); }
+    .choice.selected { border-color: var(--ink); background: var(--ink); color: var(--paper); }
+    .choice small { display: block; margin-top: 3px; color: inherit; opacity: .72; font-size: 10px; }
+
+    .facts-list { margin-bottom: 20px; border-top: 1px solid var(--line); }
+
+    .fact-row {
+      display: grid;
+      grid-template-columns: 32px 1fr 112px;
+      align-items: center;
+      min-height: 66px;
+      border-bottom: 1px solid var(--line);
+      cursor: pointer;
+    }
+
+    .fact-check {
+      width: 16px;
+      height: 16px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line-strong);
+      color: transparent;
+      font: 10px var(--mono);
+    }
+
+    .fact-row.confirmed .fact-check { border-color: var(--accent); background: var(--accent); color: white; }
+    .fact-copy strong { display: block; font-size: 13px; font-weight: 580; }
+    .fact-copy span { display: block; margin-top: 4px; color: var(--faint); font-size: 11px; }
+    .fact-source { color: var(--muted); text-align: right; font: 10px var(--mono); }
+
+    .trade-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 9px;
+      margin-bottom: 20px;
+    }
+
+    .trade-card {
+      min-height: 180px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      background: #191918;
+      cursor: pointer;
+    }
+
+    .trade-card:hover { border-color: #6d6962; }
+    .trade-card.selected { border-color: var(--accent); box-shadow: inset 0 -3px 0 var(--accent); }
+    .trade-card .index { color: var(--faint); font: 10px var(--mono); }
+    .trade-card h4 { margin: 14px 0 9px; font-size: 14px; font-weight: 620; }
+    .trade-card p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+    .trade-card .effect { display: block; margin-top: 13px; padding-top: 10px; border-top: 1px solid var(--line); color: #d5d1c7; font-size: 11px; line-height: 1.5; }
+
+    .decision-note {
+      width: 100%;
+      height: 72px;
+      resize: none;
+      padding: 11px 12px;
+      border: 1px solid var(--line-strong);
+      border-radius: 0;
+      background: #171716;
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .validation-list { margin-bottom: 20px; border-top: 1px solid var(--line); }
+
+    .validation-item {
+      display: grid;
+      grid-template-columns: 30px 1fr 132px;
+      gap: 6px;
+      align-items: center;
+      min-height: 73px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .validation-no { color: var(--faint); font: 10px var(--mono); }
+    .validation-text { font-size: 13px; line-height: 1.5; }
+
+    .check-state {
+      justify-self: end;
+      padding: 5px 7px;
+      border: 1px solid var(--line-strong);
+      color: var(--muted);
+      font: 10px var(--mono);
+    }
+
+    .record-preview { padding: 15px 17px; border: 1px solid var(--line); background: #191918; }
+    .record-row { display: grid; grid-template-columns: 112px 1fr; gap: 12px; padding: 7px 0; border-bottom: 1px solid #2c2c2a; font-size: 12px; line-height: 1.5; }
+    .record-row:last-child { border-bottom: 0; }
+    .record-row span:first-child { color: var(--faint); font: 10px var(--mono); }
+
+    .control-deck {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 4;
+      height: 92px;
+      display: grid;
+      grid-template-columns: 116px 1fr 146px;
+      align-items: stretch;
+      border-top: 1px solid var(--line-strong);
+      background: #171716;
+    }
+
+    .nav-control {
+      border: 0;
+      border-right: 1px solid var(--line);
+      background: transparent;
+      color: var(--muted);
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .nav-control:hover:not(:disabled) { background: #222220; color: var(--text); }
+    .nav-control:disabled { color: #494740; cursor: default; }
+    .nav-control.next { border-right: 0; border-left: 1px solid var(--line); background: var(--accent); color: white; font-weight: 650; }
+    .nav-control.next:hover { background: #d25c41; }
+
+    .decision-console {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-width: 0;
+      padding: 0 17px;
+    }
+
+    .decision-status { min-width: 0; }
+    .decision-status .label { color: var(--faint); font: 9px var(--mono); letter-spacing: .1em; }
+    .decision-status .value { margin-top: 6px; overflow: hidden; color: var(--text); font-size: 12px; white-space: nowrap; text-overflow: ellipsis; }
+
+    .record-button {
+      flex: 0 0 auto;
+      height: 35px;
+      margin-left: 14px;
+      padding: 0 14px;
+      border: 1px solid var(--line-strong);
+      background: #242422;
+      color: var(--text);
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .record-button:hover { border-color: var(--muted); }
+    .record-button.saved { border-color: #6e6a62; color: #c9c5bb; }
+
+    .context-panel {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      border-left: 1px solid var(--line);
+      background: #181817;
+    }
+
+    .agent-host {
+      flex: 0 0 302px;
+      border-bottom: 1px solid var(--line-strong);
+    }
+
+    .panel-cap {
+      height: 42px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+      font: 10px var(--mono);
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+
+    .host-live { display: flex; align-items: center; gap: 7px; color: #d1cdc3; }
+    .host-live i { width: 6px; height: 6px; background: var(--accent); }
+
+    .host-body { padding: 16px; }
+
+    .host-stage {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 13px;
+      font: 10px var(--mono);
+    }
+
+    .host-stage span:first-child { color: var(--faint); }
+    .host-stage span:last-child { color: var(--accent); }
+
+    .host-message {
+      margin: 0 0 14px;
+      min-height: 58px;
+      color: #dedad0;
+      font-size: 13px;
+      line-height: 1.65;
+    }
+
+    .waiting {
+      padding: 10px 11px;
+      border-left: 2px solid var(--accent);
+      background: #20201f;
+    }
+
+    .waiting .label { color: var(--accent); font: 9px var(--mono); letter-spacing: .09em; }
+    .waiting p { margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+
+    .host-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 12px; }
+    .host-actions button { height: 33px; border: 1px solid var(--line-strong); background: transparent; color: var(--muted); font-size: 11px; cursor: pointer; }
+    .host-actions button:hover { border-color: #716d65; color: var(--text); }
+
+    .activity-log {
+      display: none;
+      position: absolute;
+      z-index: 8;
+      top: 300px;
+      right: 14px;
+      width: 332px;
+      padding: 12px 14px;
+      border: 1px solid var(--line-strong);
+      background: #20201f;
+      box-shadow: 0 12px 36px rgba(0,0,0,.3);
+    }
+
+    .activity-log.open { display: block; }
+    .activity-entry { position: relative; padding: 8px 0 8px 18px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 11px; line-height: 1.5; }
+    .activity-entry:last-child { border-bottom: 0; }
+    .activity-entry::before { content: ""; position: absolute; left: 2px; top: 14px; width: 6px; height: 6px; border: 1px solid #77736c; }
+
+    .prototype-box { flex: 0 0 368px; border-bottom: 1px solid var(--line-strong); }
+
+    .prototype-wrap { padding: 14px 16px; }
+
+    .prototype-frame {
+      height: 244px;
+      border: 1px solid var(--line-strong);
+      background: #e9e8e3;
+      color: #242422;
+      overflow: hidden;
+    }
+
+    .prototype-top {
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 9px;
+      border-bottom: 1px solid #c6c3bb;
+      background: #d9d7d1;
+      font: 8px var(--mono);
+    }
+
+    .proto-layout { height: calc(100% - 28px); display: grid; grid-template-columns: 66px 1fr; }
+    .proto-side { padding: 12px 8px; border-right: 1px solid #cfccc5; background: #dfddd7; }
+    .proto-line { height: 4px; margin-bottom: 8px; background: #aaa79f; }
+    .proto-main { padding: 12px; }
+    .conversation { height: 46px; padding: 8px; border: 1px solid #d0cdc5; background: #f4f3ef; font-size: 7px; line-height: 1.5; }
+    .reply-box { margin-top: 10px; padding: 10px; border: 1px solid #bdbab2; background: white; }
+    .reply-title { font-size: 8px; font-weight: 700; }
+    .reply-copy { margin-top: 8px; color: #67645e; font-size: 7px; line-height: 1.5; }
+
+    .kb-state {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      margin: 8px 0 0;
+      padding: 5px 6px;
+      border: 1px solid #a64a35;
+      background: #f0ded8;
+      color: #783321;
+      font: 7px var(--mono);
+    }
+
+    .prototype-frame.has-status .kb-state { display: flex; }
+    .prototype-frame.unavailable .reply-box { opacity: .46; }
+    .prototype-frame.unavailable .kb-state { display: flex; border-color: #99958d; background: #e4e2dc; color: #69655e; }
+
+    .proto-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 9px; }
+    .proto-actions span { padding: 4px 7px; border: 1px solid #8f8b83; font-size: 6px; }
+    .proto-actions .send { background: #33312e; color: white; }
+
+    .version-note { display: flex; justify-content: space-between; align-items: start; gap: 12px; margin-top: 11px; }
+    .version-note strong { font: 11px var(--mono); }
+    .version-note p { margin: 0; max-width: 230px; color: var(--faint); font-size: 10px; line-height: 1.5; text-align: right; }
+
+    .materials { position: relative; flex: 1; min-height: 0; }
+    .material-summary { padding: 14px 16px; }
+    .material-count { display: grid; grid-template-columns: 34px 1fr; align-items: center; gap: 9px; }
+    .material-count b { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid var(--line-strong); font: 12px var(--mono); }
+    .material-count strong { display: block; font-size: 12px; }
+    .material-count span { display: block; margin-top: 3px; color: var(--faint); font-size: 10px; }
+
+    .materials-button { width: 100%; height: 36px; margin-top: 13px; border: 1px solid var(--line-strong); background: transparent; color: var(--muted); font-size: 11px; cursor: pointer; }
+    .materials-button:hover { border-color: #716d65; color: var(--text); }
+
+    .materials-drawer {
+      position: absolute;
+      inset: 0;
+      z-index: 9;
+      overflow: auto;
+      background: #1c1c1b;
+      transform: translateY(100%);
+      transition: transform 220ms ease;
+    }
+
+    .materials-drawer.open { transform: translateY(0); }
+    .materials-drawer .drawer-head { position: sticky; top: 0; z-index: 1; background: #1c1c1b; }
+    .material-item { padding: 13px 16px; border-bottom: 1px solid var(--line); }
+    .material-item .meta { color: var(--faint); font: 9px var(--mono); }
+    .material-item strong { display: block; margin: 7px 0; font-size: 12px; }
+    .material-item p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+
+    .toast {
+      position: absolute;
+      left: 50%;
+      bottom: 106px;
+      z-index: 15;
+      padding: 10px 14px;
+      border: 1px solid var(--line-strong);
+      background: #2a2927;
+      color: var(--text);
+      font-size: 12px;
+      box-shadow: 0 12px 36px rgba(0,0,0,.28);
+      opacity: 0;
+      transform: translate(-50%, 8px);
+      pointer-events: none;
+      transition: opacity 160ms ease, transform 160ms ease;
+    }
+
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+    .modal-backdrop {
+      position: absolute;
+      inset: 0;
+      z-index: 20;
+      display: none;
+      place-items: center;
+      background: rgba(10,10,10,.68);
+    }
+
+    .modal-backdrop.open { display: grid; }
+    .modal { width: 440px; border: 1px solid var(--line-strong); background: #212120; box-shadow: 0 12px 36px rgba(0,0,0,.38); }
+    .modal-title { padding: 16px 18px; border-bottom: 1px solid var(--line); font-size: 15px; font-weight: 620; }
+    .modal-body { padding: 17px 18px; }
+    .modal-body p { margin: 0 0 13px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+    .modal-body textarea { width: 100%; height: 76px; padding: 10px; resize: none; border: 1px solid var(--line-strong); border-radius: 0; background: #171716; color: var(--text); font-size: 12px; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 13px 18px; border-top: 1px solid var(--line); }
+    .modal-actions button { height: 34px; padding: 0 13px; border: 1px solid var(--line-strong); background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; }
+    .modal-actions .confirm { border-color: var(--accent); background: var(--accent); color: white; }
+
+    @media (max-width: 1439px) {
+      body { overflow-x: auto; }
+      .app { margin: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">PA</div>
+        <div>
+          <div class="brand-name">ProtoAlign</div>
+          <div class="brand-sub">Guided Review</div>
+        </div>
+      </div>
+      <div class="session-title">
+        <strong>AI 客服回复助手</strong>
+        <span class="session-id">评审会 / REV-014</span>
+        <div class="gate"><i class="gate-dot"></i>研发交付前 · 暂不可交付</div>
+      </div>
+      <div class="top-actions">
+        <div class="select-wrap">
+          <select id="versionSelect" aria-label="切换原型版本">
+            <option value="V1">当前版本 V1</option>
+            <option value="V2">验证版本 V2</option>
+            <option value="V3">备选版本 V3</option>
+            <option value="V4">备选版本 V4</option>
+          </select>
+        </div>
+        <button class="tiny-action" id="clarifyButton">发起澄清</button>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <aside class="rail">
+        <div class="rail-head">
+          <div class="eyebrow">Session Agenda</div>
+          <h2>本次评审</h2>
+        </div>
+        <div class="issue-pin">
+          <div class="issue-meta"><span>ISS-014</span><span class="issue-status">阻塞交付</span></div>
+          <h3>知识库更新延迟没有被清楚告知</h3>
+          <div class="issue-source">客户反馈 · 处理中 · V1</div>
+        </div>
+        <nav class="step-list" aria-label="评审检查点">
+          <button class="step-button active" data-stage="0">
+            <span class="step-no">01</span><span><span class="step-name">理解问题</span><span class="step-desc">影响与问题边界</span></span><i class="step-state"></i>
+          </button>
+          <button class="step-button" data-stage="1">
+            <span class="step-no">02</span><span><span class="step-name">确认事实</span><span class="step-desc">资料、约束与权限</span></span><i class="step-state"></i>
+          </button>
+          <button class="step-button" data-stage="2">
+            <span class="step-no">03</span><span><span class="step-name">做出取舍</span><span class="step-desc">处理方式与依据</span></span><i class="step-state"></i>
+          </button>
+          <button class="step-button" data-stage="3">
+            <span class="step-no">04</span><span><span class="step-name">定义验证</span><span class="step-desc">验收条件与关闭权</span></span><i class="step-state"></i>
+          </button>
+        </nav>
+        <button class="queue-toggle" id="queueToggle"><span>其他问题</span><span>03 / 查看</span></button>
+        <div class="queue-drawer" id="queueDrawer">
+          <div class="drawer-head"><strong>其他问题 · 3</strong><button class="icon-button" id="queueClose" aria-label="关闭问题抽屉">×</button></div>
+          <div class="queue-item"><span class="id">ISS-011 · 研发反馈</span><h4>高风险回复缺少人工确认</h4><p>待处理 · V1 / 回复操作区</p></div>
+          <div class="queue-item"><span class="id">ISS-016 · AI 推断·待确认</span><h4>无法回答时没有失败兜底</h4><p>待确认 · V1 / 回复生成区</p></div>
+          <div class="queue-item"><span class="id">ISS-018 · 客户反馈</span><h4>转人工入口在长对话中不可见</h4><p>待处理 · V1 / 会话区</p></div>
+        </div>
+      </aside>
+
+      <main class="session-main">
+        <div class="phase-strip">
+          <div class="phase-segment active"><b>01</b><span>理解</span></div>
+          <div class="phase-segment"><b>02</b><span>确认</span></div>
+          <div class="phase-segment"><b>03</b><span>取舍</span></div>
+          <div class="phase-segment"><b>04</b><span>验证</span></div>
+        </div>
+
+        <section class="stage-header">
+          <div class="stage-kicker"><span id="stageKicker">CHECKPOINT 01 / UNDERSTAND</span><span class="timebox">单问题评审 · ISS-014</span></div>
+          <h1 id="stageTitle">先把风险说清楚，再讨论界面怎么改</h1>
+          <p class="stage-intro" id="stageIntro">理解这条反馈真正阻塞的是什么，并确认它是否需要作为研发交付前的硬门槛。</p>
+        </section>
+
+        <div class="stage-body">
+          <section class="stage-panel active" data-panel="0">
+            <div class="block-label">已识别的影响</div>
+            <div class="impact-box">
+              <div class="impact-type">阻塞交付</div>
+              <div class="impact-copy">客服可能把基于过期政策生成的回复直接发给用户，造成误解与投诉。</div>
+            </div>
+            <div class="block-label">证据如何指向同一个风险</div>
+            <div class="evidence-grid">
+              <article class="evidence-card"><div class="evidence-top"><span>客户会议纪要</span><span>07.28</span></div><p>知识库更新后，回复中的部分信息与实际政策不一致，用户没有被告知可能延迟。</p></article>
+              <article class="evidence-card"><div class="evidence-top"><span>研发评审记录</span><span>07.30</span></div><p>知识库同步为异步任务，完成时间不能保证；前端必须展示同步状态和最近更新时间。</p></article>
+            </div>
+            <div class="prompt-box">
+              <div class="prompt-no">关键确认 / 01</div>
+              <h3>这条问题是否应继续阻塞 V1 进入研发交付？</h3>
+              <div class="choice-row" data-group="understand">
+                <button class="choice" data-value="确认阻塞：风险直接影响对外回复">确认阻塞<small>风险直接影响对外回复</small></button>
+                <button class="choice" data-value="暂不阻塞：需要补充影响依据">暂不阻塞<small>先补充影响与范围依据</small></button>
+              </div>
+            </div>
+          </section>
+
+          <section class="stage-panel" data-panel="1">
+            <div class="block-label">需要由人确认的事实</div>
+            <div class="facts-list">
+              <div class="fact-row confirmed"><span class="fact-check">✓</span><div class="fact-copy"><strong>同步任务是异步执行</strong><span>更新完成时间不能保证。</span></div><span class="fact-source">研发记录 · 07.30</span></div>
+              <div class="fact-row confirmed"><span class="fact-check">✓</span><div class="fact-copy"><strong>V1 未展示同步状态</strong><span>回复区也没有最近更新时间或过期提示。</span></div><span class="fact-source">原型检查 · V1</span></div>
+              <div class="fact-row" tabindex="0"><span class="fact-check">✓</span><div class="fact-copy"><strong>资料过期时仍可直接发送</strong><span>该权限边界未在现有资料中明确。</span></div><span class="fact-source">等待产品确认</span></div>
+            </div>
+            <div class="prompt-box">
+              <div class="prompt-no">关键确认 / 02</div>
+              <h3>资料过期或同步中时，客服是否仍被允许直接发送？</h3>
+              <div class="choice-row three" data-group="confirm">
+                <button class="choice" data-value="不允许直接发送，必须人工确认风险">不允许<small>必须先确认风险</small></button>
+                <button class="choice" data-value="允许发送，但必须展示明确警示">允许但警示<small>保留发送权限</small></button>
+                <button class="choice" data-value="事实未定，发起澄清">尚未确定<small>转为澄清事项</small></button>
+              </div>
+            </div>
+          </section>
+
+          <section class="stage-panel" data-panel="2">
+            <div class="block-label">选择处理方式</div>
+            <div class="trade-grid" data-group="trade">
+              <button class="trade-card" data-value="同步状态 + 最近更新时间 + 高风险人工确认"><span class="index">方案 A</span><h4>硬门槛</h4><p>同步中或资料过期时阻止直接发送，并要求客服确认风险。</p><span class="effect">最符合当前风险边界；需要研发补充发送前校验。</span></button>
+              <button class="trade-card" data-value="同步状态 + 最近更新时间 + 明确警示"><span class="index">方案 B</span><h4>带警示发送</h4><p>保留发送操作，同时突出同步状态、更新时间与过期提示。</p><span class="effect">改动较轻；需接受客服忽略警示的剩余风险。</span></button>
+              <button class="trade-card" data-value="延后到下一版本处理"><span class="index">方案 C</span><h4>延后处理</h4><p>V1 不改动，把问题带入后续版本再验证。</p><span class="effect">必须留下接受风险的依据，当前仍不可直接关闭。</span></button>
+            </div>
+            <div class="block-label">决定依据</div>
+            <textarea class="decision-note" id="decisionNote" aria-label="填写决定依据">客户反馈与研发约束指向同一风险；资料状态不可见会影响客服对外发送判断。</textarea>
+          </section>
+
+          <section class="stage-panel" data-panel="3">
+            <div class="block-label">V2 必须可被验证的条件</div>
+            <div class="validation-list">
+              <div class="validation-item"><span class="validation-no">V-01</span><span class="validation-text">回复区域能看到知识库同步状态与最近更新时间。</span><span class="check-state">待 V2 验证</span></div>
+              <div class="validation-item"><span class="validation-no">V-02</span><span class="validation-text">同步中或资料过期时出现明确提示。</span><span class="check-state">待 V2 验证</span></div>
+              <div class="validation-item"><span class="validation-no">V-03</span><span class="validation-text">客服不能在未确认风险时直接发送高风险回复。</span><span class="check-state">待 V2 验证</span></div>
+            </div>
+            <div class="block-label">将写入问题记录</div>
+            <div class="record-preview">
+              <div class="record-row"><span>问题</span><strong>ISS-014 · 知识库更新延迟没有被清楚告知</strong></div>
+              <div class="record-row"><span>当前决定</span><strong id="recordDecision">尚未记录处理方式</strong></div>
+              <div class="record-row"><span>确认对象</span><strong>产品经理 · 最终操作权</strong></div>
+              <div class="record-row"><span>下一状态</span><strong>标记待验证，切换 V2 核对验收条件</strong></div>
+            </div>
+            <div style="display:flex; gap:8px; margin-top:14px;">
+              <button class="record-button" id="markVerify">标记待验证</button>
+              <button class="record-button" id="acceptRisk">接受风险</button>
+              <button class="record-button" id="closeIssue">关闭问题</button>
+            </div>
+          </section>
+        </div>
+
+        <footer class="control-deck">
+          <button class="nav-control" id="prevStage" disabled>← 上一步</button>
+          <div class="decision-console">
+            <div class="decision-status"><div class="label">HUMAN DECISION / 当前记录</div><div class="value" id="decisionStatus">等待确认这是否阻塞交付</div></div>
+            <button class="record-button" id="recordButton">记录决定</button>
+          </div>
+          <button class="nav-control next" id="nextStage">下一检查点 →</button>
+        </footer>
+
+        <div class="toast" id="toast">决定已写入评审记录</div>
+        <div class="modal-backdrop" id="modalBackdrop">
+          <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+            <div class="modal-title" id="modalTitle">接受风险需要明确依据</div>
+            <div class="modal-body"><p id="modalCopy">Agent 只能提出建议。请由产品经理记录依据，再执行最终操作。</p><textarea id="modalReason" placeholder="填写依据或确认说明"></textarea></div>
+            <div class="modal-actions"><button id="modalCancel">取消</button><button class="confirm" id="modalConfirm">确认操作</button></div>
+          </div>
+        </div>
+      </main>
+
+      <aside class="context-panel">
+        <section class="agent-host">
+          <div class="panel-cap"><span>Agent 主持人</span><span class="host-live"><i></i>等待人工</span></div>
+          <div class="host-body">
+            <div class="host-stage"><span>CURRENT STAGE</span><span id="hostStage">01 / 理解问题</span></div>
+            <p class="host-message" id="hostMessage">这不是单纯的提示文案问题。先确认它是否构成交付阻塞，再进入事实与权限边界。</p>
+            <div class="waiting"><div class="label">WAITING FOR</div><p id="hostWaiting">确认 ISS-014 是否继续阻塞 V1 进入研发交付。</p></div>
+            <div class="host-actions"><button id="activityToggle">活动记录 · 4</button><button id="materialsOpenTop">调用资料 · 3</button></div>
+          </div>
+        </section>
+
+        <section class="prototype-box">
+          <div class="panel-cap"><span>原型定位</span><span>客服工作台 / 回复生成区</span></div>
+          <div class="prototype-wrap">
+            <div class="prototype-frame" id="prototypeFrame">
+              <div class="prototype-top"><span>客服工作台</span><span id="prototypeVersion">V1</span></div>
+              <div class="proto-layout">
+                <div class="proto-side"><div class="proto-line"></div><div class="proto-line" style="width:70%"></div><div class="proto-line" style="width:84%"></div></div>
+                <div class="proto-main">
+                  <div class="conversation">用户：会员退款政策更新后，已支付订单应该如何处理？</div>
+                  <div class="reply-box"><div class="reply-title">AI 候选回复</div><div class="reply-copy">根据企业知识库生成：已支付订单可按原退款政策提交申请……</div><div class="kb-state"><span id="kbStateText">知识库同步中</span><span id="kbTimeText">最近更新 07.30 18:40</span></div><div class="proto-actions"><span>重新生成</span><span class="send">确认发送</span></div></div>
+                </div>
+              </div>
+            </div>
+            <div class="version-note"><strong id="versionTag">V1 / 缺口</strong><p id="versionNote">未发现同步状态、最近更新时间或过期提示。</p></div>
+          </div>
+        </section>
+
+        <section class="materials">
+          <div class="panel-cap"><span>本阶段使用资料</span><span id="materialStage">阶段 01</span></div>
+          <div class="material-summary">
+            <div class="material-count"><b>03</b><div><strong>已调用并完成对照</strong><span>纪要 / 研发记录 / 原型 V1</span></div></div>
+            <button class="materials-button" id="materialsOpen">展开资料与原文摘录</button>
+          </div>
+          <div class="materials-drawer" id="materialsDrawer">
+            <div class="drawer-head"><strong>调用资料 · 可回溯</strong><button class="icon-button" id="materialsClose" aria-label="关闭资料抽屉">×</button></div>
+            <div class="material-item"><span class="meta">客户会议纪要 · 07.28</span><strong>知识库更新延迟</strong><p>“知识库更新后，客服回复中的部分信息与实际政策不一致，用户没有被告知可能延迟，导致误解和投诉。”</p></div>
+            <div class="material-item"><span class="meta">研发评审记录 · 07.30</span><strong>异步同步约束</strong><p>“知识库同步为异步任务，更新完成时间不能保证；前端必须展示同步状态和最近更新时间。”</p></div>
+            <div class="material-item"><span class="meta">原型检查 · V1</span><strong>回复生成区</strong><p>仅显示“基于知识库生成”，未发现同步状态、最近更新时间或过期提示。</p></div>
+          </div>
+        </section>
+
+        <div class="activity-log" id="activityLog">
+          <div class="activity-entry">已检索《7 月 28 日客户会议纪要》，定位到“知识库更新延迟”反馈。</div>
+          <div class="activity-entry">已检查 V1「客服工作台」，回复区未发现同步状态和最近更新时间。</div>
+          <div class="activity-entry">已对照《7 月 30 日研发评审记录》，确认异步同步属于已知技术约束。</div>
+          <div class="activity-entry">已生成问题草稿 ISS-014，等待产品经理确认事实和处理方式。</div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    const stageData = [
+      {
+        kicker: 'CHECKPOINT 01 / UNDERSTAND',
+        title: '先把风险说清楚，再讨论界面怎么改',
+        intro: '理解这条反馈真正阻塞的是什么，并确认它是否需要作为研发交付前的硬门槛。',
+        hostStage: '01 / 理解问题',
+        hostMessage: '这不是单纯的提示文案问题。先确认它是否构成交付阻塞，再进入事实与权限边界。',
+        waiting: '确认 ISS-014 是否继续阻塞 V1 进入研发交付。',
+        defaultDecision: '等待确认这是否阻塞交付'
+      },
+      {
+        kicker: 'CHECKPOINT 02 / CONFIRM',
+        title: '把可验证的事实与待确认的权限边界分开',
+        intro: '资料能证明异步同步与界面缺口，但“资料过期时能否直接发送”仍需要产品经理确认。',
+        hostStage: '02 / 确认事实',
+        hostMessage: '两份资料已经确认技术约束与界面缺口。现在只处理资料没有回答的权限问题。',
+        waiting: '确认资料过期或同步中时，客服是否仍可直接发送。',
+        defaultDecision: '等待确认发送权限边界'
+      },
+      {
+        kicker: 'CHECKPOINT 03 / DECIDE',
+        title: '选择处理方式，并留下能够被复核的依据',
+        intro: '取舍不只改变提示文案，也会改变发送权限、研发范围和最终验收条件。',
+        hostStage: '03 / 做出取舍',
+        hostMessage: '请选择一种处理方式，并说明依据。若选择延后，需要明确记录所接受的剩余风险。',
+        waiting: '选择处理方案，并由产品经理写下决定依据。',
+        defaultDecision: '等待选择处理方式'
+      },
+      {
+        kicker: 'CHECKPOINT 04 / VERIFY',
+        title: '把决定翻译成 V2 可以逐条核对的验证条件',
+        intro: '问题不会因为“已经改过”而关闭；只有验证条件在目标版本中被满足，才能完成闭环。',
+        hostStage: '04 / 定义验证',
+        hostMessage: '验证条件已经生成。请先标记待验证并切换到 V2 核对；关闭权仍在产品经理手中。',
+        waiting: '确认验证条件，并决定标记待验证、接受风险或关闭问题。',
+        defaultDecision: '等待确认验证方式'
+      }
+    ];
+
+    const decisions = ['', '', '', ''];
+    let currentStage = 0;
+    let modalAction = '';
+    let toastTimer;
+
+    const stageButtons = [...document.querySelectorAll('.step-button')];
+    const stagePanels = [...document.querySelectorAll('.stage-panel')];
+    const phaseSegments = [...document.querySelectorAll('.phase-segment')];
+    const stageTitle = document.getElementById('stageTitle');
+    const stageIntro = document.getElementById('stageIntro');
+    const stageKicker = document.getElementById('stageKicker');
+    const hostStage = document.getElementById('hostStage');
+    const hostMessage = document.getElementById('hostMessage');
+    const hostWaiting = document.getElementById('hostWaiting');
+    const decisionStatus = document.getElementById('decisionStatus');
+    const prevStage = document.getElementById('prevStage');
+    const nextStage = document.getElementById('nextStage');
+    const recordButton = document.getElementById('recordButton');
+
+    function renderStage(index) {
+      currentStage = Math.max(0, Math.min(3, index));
+      const data = stageData[currentStage];
+      stageButtons.forEach((button, i) => {
+        button.classList.toggle('active', i === currentStage);
+        button.classList.toggle('completed', i < currentStage || Boolean(decisions[i]));
+      });
+      stagePanels.forEach((panel, i) => panel.classList.toggle('active', i === currentStage));
+      phaseSegments.forEach((segment, i) => segment.classList.toggle('active', i === currentStage));
+      stageKicker.textContent = data.kicker;
+      stageTitle.textContent = data.title;
+      stageIntro.textContent = data.intro;
+      hostStage.textContent = data.hostStage;
+      hostMessage.textContent = data.hostMessage;
+      hostWaiting.textContent = data.waiting;
+      document.getElementById('materialStage').textContent = `阶段 0${currentStage + 1}`;
+      decisionStatus.textContent = decisions[currentStage] || data.defaultDecision;
+      prevStage.disabled = currentStage === 0;
+      nextStage.textContent = currentStage === 3 ? '完成评审 →' : '下一检查点 →';
+      recordButton.textContent = decisions[currentStage] ? '已记录 / 更新' : '记录决定';
+      recordButton.classList.toggle('saved', Boolean(decisions[currentStage]));
+      document.querySelector('.stage-body').scrollTop = 0;
+    }
+
+    stageButtons.forEach(button => button.addEventListener('click', () => renderStage(Number(button.dataset.stage))));
+    prevStage.addEventListener('click', () => renderStage(currentStage - 1));
+    nextStage.addEventListener('click', () => {
+      if (currentStage < 3) renderStage(currentStage + 1);
+      else showToast('评审记录已形成；请切换 V2 完成验证');
+    });
+
+    document.querySelectorAll('[data-group]').forEach(group => {
+      group.addEventListener('click', event => {
+        const choice = event.target.closest('[data-value]');
+        if (!choice) return;
+        group.querySelectorAll('[data-value]').forEach(item => item.classList.remove('selected'));
+        choice.classList.add('selected');
+        decisions[currentStage] = choice.dataset.value;
+        decisionStatus.textContent = decisions[currentStage];
+        recordButton.textContent = '记录决定';
+        recordButton.classList.remove('saved');
+        if (currentStage === 2) document.getElementById('recordDecision').textContent = choice.dataset.value;
+      });
+    });
+
+    document.querySelectorAll('.fact-row').forEach(row => {
+      row.addEventListener('click', () => {
+        row.classList.toggle('confirmed');
+        showToast(row.classList.contains('confirmed') ? '事实已标记为确认' : '已撤回事实确认');
+      });
+      row.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); row.click(); }
+      });
+    });
+
+    recordButton.addEventListener('click', () => {
+      if (currentStage === 2 && !decisions[2]) {
+        showToast('请先选择一种处理方式');
+        return;
+      }
+      if (!decisions[currentStage]) decisions[currentStage] = stageData[currentStage].defaultDecision;
+      if (currentStage === 2) {
+        const note = document.getElementById('decisionNote').value.trim();
+        decisions[2] += note ? `；依据：${note}` : '';
+        document.getElementById('recordDecision').textContent = decisions[2];
+      }
+      recordButton.textContent = '已记录 / 更新';
+      recordButton.classList.add('saved');
+      decisionStatus.textContent = decisions[currentStage];
+      stageButtons[currentStage].classList.add('completed');
+      showToast('决定已写入评审记录');
+    });
+
+    const versionData = {
+      V1: { cls: '', tag: 'V1 / 缺口', note: '未发现同步状态、最近更新时间或过期提示。', state: '知识库状态不可见', time: '最近更新时间不可见' },
+      V2: { cls: 'has-status', tag: 'V2 / 待验证', note: '已展示同步状态与最近更新时间；仍需验证发送前人工确认。', state: '知识库同步中', time: '最近更新 07.30 18:40' },
+      V3: { cls: 'unavailable', tag: 'V3 / 未用于本次评审', note: '该版本尚未纳入 ISS-014 的验证资料。', state: '未纳入验证', time: '无可用记录' },
+      V4: { cls: 'unavailable', tag: 'V4 / 未用于本次评审', note: '该版本尚未纳入 ISS-014 的验证资料。', state: '未纳入验证', time: '无可用记录' }
+    };
+
+    document.getElementById('versionSelect').addEventListener('change', event => {
+      const version = event.target.value;
+      const data = versionData[version];
+      const frame = document.getElementById('prototypeFrame');
+      frame.className = `prototype-frame ${data.cls}`.trim();
+      document.getElementById('prototypeVersion').textContent = version;
+      document.getElementById('versionTag').textContent = data.tag;
+      document.getElementById('versionNote').textContent = data.note;
+      document.getElementById('kbStateText').textContent = data.state;
+      document.getElementById('kbTimeText').textContent = data.time;
+      showToast(`已切换到 ${version} 原型`);
+    });
+
+    const queueDrawer = document.getElementById('queueDrawer');
+    document.getElementById('queueToggle').addEventListener('click', () => queueDrawer.classList.add('open'));
+    document.getElementById('queueClose').addEventListener('click', () => queueDrawer.classList.remove('open'));
+
+    const materialsDrawer = document.getElementById('materialsDrawer');
+    ['materialsOpen', 'materialsOpenTop'].forEach(id => document.getElementById(id).addEventListener('click', () => materialsDrawer.classList.add('open')));
+    document.getElementById('materialsClose').addEventListener('click', () => materialsDrawer.classList.remove('open'));
+
+    const activityLog = document.getElementById('activityLog');
+    document.getElementById('activityToggle').addEventListener('click', event => {
+      activityLog.classList.toggle('open');
+      event.currentTarget.textContent = activityLog.classList.contains('open') ? '收起活动记录' : '活动记录 · 4';
+    });
+
+    function showToast(message) {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove('show'), 1800);
+    }
+
+    document.getElementById('clarifyButton').addEventListener('click', () => {
+      decisions[currentStage] = '发起澄清：等待补充事实或权限边界';
+      decisionStatus.textContent = decisions[currentStage];
+      showToast('已生成澄清事项草稿');
+    });
+
+    document.getElementById('markVerify').addEventListener('click', () => {
+      decisions[3] = '标记待验证：切换 V2 逐条核对';
+      decisionStatus.textContent = decisions[3];
+      document.getElementById('versionSelect').value = 'V2';
+      document.getElementById('versionSelect').dispatchEvent(new Event('change'));
+    });
+
+    const modalBackdrop = document.getElementById('modalBackdrop');
+    function openModal(action) {
+      modalAction = action;
+      document.getElementById('modalTitle').textContent = action === '接受风险' ? '接受风险需要明确依据' : '关闭问题需要验证依据';
+      document.getElementById('modalCopy').textContent = action === '接受风险'
+        ? 'Agent 只能提出建议。请由产品经理记录接受剩余风险的依据，再执行最终操作。'
+        : 'ISS-014 只有在目标版本满足验证条件后才能关闭。请记录所核对的版本与依据。';
+      document.getElementById('modalReason').value = '';
+      modalBackdrop.classList.add('open');
+      setTimeout(() => document.getElementById('modalReason').focus(), 0);
+    }
+
+    document.getElementById('acceptRisk').addEventListener('click', () => openModal('接受风险'));
+    document.getElementById('closeIssue').addEventListener('click', () => openModal('关闭问题'));
+    document.getElementById('modalCancel').addEventListener('click', () => modalBackdrop.classList.remove('open'));
+    document.getElementById('modalConfirm').addEventListener('click', () => {
+      const reason = document.getElementById('modalReason').value.trim();
+      if (!reason) { showToast('请先填写操作依据'); return; }
+      decisions[3] = `${modalAction}；依据：${reason}`;
+      decisionStatus.textContent = decisions[3];
+      modalBackdrop.classList.remove('open');
+      showToast(`${modalAction}已由产品经理确认`);
+    });
+
+    modalBackdrop.addEventListener('click', event => {
+      if (event.target === modalBackdrop) modalBackdrop.classList.remove('open');
+    });
+
+    renderStage(0);
+  </script>
+</body>
+</html>
