@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { reviewabilityLabel } from "@/lib/core/prototype-quality";
 import type { PrototypeVersion, SourceItem } from "@/lib/types";
 
 type ImportMode = "source" | "feedback" | "prototype";
@@ -63,7 +64,7 @@ export function SourceDrawer({
               <div className="section-heading"><h3>已导入资料</h3><span>{sources.length + versions.length} 项</span></div>
               <div className="source-list">
                 {versions.map((version) => (
-                  <div className="source-row" key={version.id}><span className="source-kind">版</span><span><strong>{version.title || `${version.label} 原型`}</strong><small>{version.label} · {version.sourceType.toUpperCase()} · {version.pageUrl || version.sourceUrl || "本地文件"}</small></span><em className={version.captureStatus}>{version.captureStatus === "captured" ? "DOM 已采集" : version.captureStatus === "failed" ? "采集失败" : "采集中"}</em></div>
+                  <div className="source-row" key={version.id}><span className="source-kind">版</span><span><strong>{version.title || `${version.label} 原型`}</strong><small>{version.label} · {version.sourceType.toUpperCase()} · {version.pageUrl || version.sourceUrl || "本地文件"}</small><small>{version.reviewabilityReason}</small></span><em className={version.reviewability === "reviewable" ? "" : "failed"}>{version.captureStatus === "captured" ? `DOM 已采集 · ${reviewabilityLabel(version.reviewability)}` : reviewabilityLabel(version.reviewability)}</em></div>
                 ))}
                 {sources.map((source) => (
                   <div className="source-row" key={source.id}><span className="source-kind">{source.kind.includes("反馈") ? "馈" : "资"}</span><span><strong>{source.title}</strong><small>{source.kind} · {source.role} · {source.originalLocation || "手工录入"}</small></span><em>{source.parseStatus}</em></div>

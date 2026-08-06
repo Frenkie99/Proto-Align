@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { api } from "@/lib/client-api";
+import { reviewabilityLabel } from "@/lib/core/prototype-quality";
 import type { AgentEvent, Issue, ProjectSummary, WorkspaceData } from "@/lib/types";
 import { AgentPanel } from "./AgentPanel";
 import { ContextCanvas, type CanvasView } from "./ContextCanvas";
@@ -55,7 +56,7 @@ export function Workbench() {
   const selectedIssue = useMemo(() => workspace?.issues.find((issue) => issue.id === selectedIssueId) ?? null, [workspace, selectedIssueId]);
   const selectedVersion = useMemo(() => workspace?.versions.find((version) => version.id === selectedVersionId) ?? null, [workspace, selectedVersionId]);
   const activityEvents = useMemo(() => workspace?.runs.flatMap((run) => run.events) ?? [], [workspace]);
-  const canRun = Boolean(workspace?.sources.length && workspace?.versions.some((version) => version.captureStatus === "captured"));
+  const canRun = Boolean(workspace?.sources.length && selectedVersion?.captureStatus === "captured" && selectedVersion.reviewability === "reviewable");
   const canVerify = Boolean(selectedIssue && selectedVersion && selectedIssue.versionId !== selectedVersion.id && workspace && workspace.versions.length > 1);
 
   function showError(cause: unknown) {
@@ -114,9 +115,9 @@ export function Workbench() {
 
   async function addPrototype(formData: FormData) {
     if (!selectedProjectId) return;
-    await api.addPrototype(selectedProjectId, formData);
+    const { prototype } = await api.addPrototype(selectedProjectId, formData);
     await loadWorkspace(selectedProjectId);
-    showInfo("原型已完成真实 DOM 采集");
+    showInfo(prototype.reviewability === "reviewable" ? "原型已完成 DOM 采集，可开始评审" : `原型已采集，但识别为“${reviewabilityLabel(prototype.reviewability)}”`);
   }
 
   async function runAgent() {
@@ -185,6 +186,7 @@ export function Workbench() {
             <button className={view === "review" ? "active" : ""} onClick={() => setView("review")}>问题评审</button>
             <button className={view === "baseline" ? "active" : ""} disabled={!workspace} onClick={() => setView("baseline")}>需求基线</button>
             <button className={view === "versions" ? "active" : ""} disabled={!workspace} onClick={() => setView("versions")}>版本记录</button>
+            <button className={view === "comparison" ? "active" : ""} disabled={!workspace} onClick={() => setView("comparison")}>运行比较</button>
           </nav>
           <label className="version-select">原型版本
             <select value={selectedVersionId || ""} disabled={!workspace?.versions.length} onChange={(event) => setSelectedVersionId(event.target.value)}>
@@ -198,7 +200,7 @@ export function Workbench() {
           <span className="top-spacer" />
           <div className="top-actions">
             <span className="readiness">{workspace?.project.readinessSuggestion || "等待项目"}</span>
-            <button className="run-button" disabled={!canRun || busy} onClick={runAgent}>{busy ? "真实运行中…" : canVerify ? "启动复检" : "启动评审"}</button>
+            <button className="run-button" disabled={!canRun || busy} title={selectedVersion && selectedVersion.reviewability !== "reviewable" ? selectedVersion.reviewabilityReason : undefined} onClick={runAgent}>{busy ? "真实运行中…" : selectedVersion && selectedVersion.reviewability !== "reviewable" ? "原型不可评审" : canVerify ? "启动复检" : "启动评审"}</button>
           </div>
         </header>
 
@@ -213,6 +215,9 @@ export function Workbench() {
                 claims={workspace.claims}
                 versions={workspace.versions}
                 sources={workspace.sources}
+                issues={workspace.issues}
+                runs={workspace.runs}
+                projectId={workspace.project.id}
                 selectedClaimIds={selectedClaimIds}
                 onToggleClaim={(claimId) => setSelectedClaimIds((current) => current.includes(claimId) ? current.filter((id) => id !== claimId) : [...current, claimId])}
                 onConfirmClaims={confirmClaims}

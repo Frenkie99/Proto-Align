@@ -1,8 +1,11 @@
 "use client";
 
-import type { Claim, Issue, PrototypeVersion, SourceItem } from "@/lib/types";
+import { useEffect, useMemo, useState } from "react";
+import { reviewabilityLabel } from "@/lib/core/prototype-quality";
+import { compareReviewRuns, type ComparableIssue } from "@/lib/core/run-comparison";
+import type { AgentRun, Claim, Issue, PrototypeVersion, SourceItem } from "@/lib/types";
 
-export type CanvasView = "review" | "baseline" | "versions";
+export type CanvasView = "review" | "baseline" | "versions" | "comparison";
 
 export function ContextCanvas({
   view,
@@ -11,6 +14,9 @@ export function ContextCanvas({
   claims,
   versions,
   sources,
+  issues,
+  runs,
+  projectId,
   selectedClaimIds,
   onToggleClaim,
   onConfirmClaims,
@@ -22,6 +28,9 @@ export function ContextCanvas({
   claims: Claim[];
   versions: PrototypeVersion[];
   sources: SourceItem[];
+  issues: Issue[];
+  runs: AgentRun[];
+  projectId: string;
   selectedClaimIds: string[];
   onToggleClaim: (claimId: string) => void;
   onConfirmClaims: () => void;
@@ -85,14 +94,19 @@ export function ContextCanvas({
                 <span>
                   <strong>{item.title || item.pageUrl || `${item.label} 原型`}</strong>
                   <small>{item.sourceType.toUpperCase()} · {item.pageUrl || item.sourceUrl || "本地静态文件"}</small>
+                  <small>{item.reviewabilityReason}</small>
                 </span>
-                <span className={`capture-state ${item.captureStatus}`}>{captureLabel(item)}</span>
+                <span className={`capture-state ${item.reviewability === "reviewable" ? "" : "failed"}`}>{reviewabilityLabel(item.reviewability)}</span>
               </article>
             )) : <EmptyCanvas title="尚未导入原型" copy="从“导入资料”中添加可访问 URL、单文件 HTML 或静态构建 ZIP。" />}
           </div>
         </div>
       </section>
     );
+  }
+
+  if (view === "comparison") {
+    return <RunComparisonView key={projectId} runs={runs} issues={issues} />;
   }
 
   return (
@@ -147,6 +161,87 @@ export function ContextCanvas({
       {sources.length === 0 && issue ? <span className="honesty-note">当前项目没有文本资料；AI 推断不会被当成已确认事实。</span> : null}
     </section>
   );
+}
+
+function RunComparisonView({ runs, issues }: { runs: AgentRun[]; issues: Issue[] }) {
+  const reviewRuns = useMemo(() => runs.filter((run) => run.mode === "review" && run.status === "completed" && issues.some((issue) => issue.runId === run.id)), [runs, issues]);
+  const [runAId, setRunAId] = useState(reviewRuns[1]?.id || "");
+  const [runBId, setRunBId] = useState(reviewRuns[0]?.id || "");
+
+  useEffect(() => {
+    if (!reviewRuns.some((run) => run.id === runAId)) setRunAId(reviewRuns[1]?.id || "");
+    if (!reviewRuns.some((run) => run.id === runBId)) setRunBId(reviewRuns[0]?.id || "");
+  }, [reviewRuns, runAId, runBId]);
+
+  const runA = reviewRuns.find((run) => run.id === runAId);
+  const runB = reviewRuns.find((run) => run.id === runBId);
+  const comparison = runA && runB && runA.id !== runB.id ? compareReviewRuns(runA, runB, issues) : null;
+
+  return (
+    <section className="center-pane">
+      <CanvasHeader title="重复评审比较" crumb="项目级上下文 / 已保存的真实初评 Run" />
+      <div className="canvas-card subview comparison-view">
+        <div className="subview-intro">
+          <div><h2>运行稳定性</h2><p>比较只读取已保存的 Issue 与证据，不调用模型补写；结果始终需要人工确认。</p></div>
+          <span>{reviewRuns.length} 次可比较初评</span>
+        </div>
+        {reviewRuns.length < 2 ? <EmptyCanvas title="样本不足" copy="至少需要两次已完成且生成 Issue 的初评，才能比较共同主题与波动。" /> : (
+          <>
+            <div className="comparison-selectors">
+              <RunSelect label="运行 A" value={runAId} runs={reviewRuns} exclude={runBId} onChange={setRunAId} />
+              <RunSelect label="运行 B" value={runBId} runs={reviewRuns} exclude={runAId} onChange={setRunBId} />
+            </div>
+            {comparison ? (
+              <>
+                <div className={`stability-summary ${comparison.stability.label === "较稳定" ? "stable" : "variable"}`}>
+                  <span><strong>{comparison.stability.label}</strong><small>待人工确认</small></span>
+                  <div>{comparison.stability.reasons.map((reason) => <p key={reason}>{reason}</p>)}</div>
+                </div>
+                <ComparisonGroup title={`共同主题 · ${comparison.shared.length}`}>
+                  {comparison.shared.map((item) => (
+                    <article className="comparison-card shared" key={`${item.issueA.id}-${item.issueB.id}`}>
+                      <header><strong>{item.issueA.title}</strong><span>匹配度 {Math.round(item.similarity * 100)}%</span></header>
+                      <p>运行 B：{item.issueB.title}</p>
+                      <div className="comparison-diffs">
+                        <span className={item.severityChanged ? "changed" : ""}>严重程度：{item.issueA.severity} → {item.issueB.severity}</span>
+                        <span className={item.evidenceChanged ? "changed" : ""}>证据：{evidenceSummary(item.issueA)} → {evidenceSummary(item.issueB)}</span>
+                      </div>
+                    </article>
+                  ))}
+                </ComparisonGroup>
+                <div className="comparison-columns">
+                  <ComparisonGroup title={`仅运行 A · ${comparison.onlyA.length}`}><IssueComparisonCards issues={comparison.onlyA} /></ComparisonGroup>
+                  <ComparisonGroup title={`仅运行 B · ${comparison.onlyB.length}`}><IssueComparisonCards issues={comparison.onlyB} /></ComparisonGroup>
+                </div>
+              </>
+            ) : <EmptyCanvas title="请选择两个不同运行" copy="运行 A 与运行 B 不能相同。" />}
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function RunSelect({ label, value, runs, exclude, onChange }: { label: string; value: string; runs: AgentRun[]; exclude: string; onChange: (value: string) => void }) {
+  return <label className="field">{label}<select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}>{runs.filter((run) => run.id !== exclude || run.id === value).map((run) => <option key={run.id} value={run.id}>{formatRun(run)}</option>)}</select></label>;
+}
+
+function ComparisonGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return <section className="comparison-group"><h3>{title}</h3>{children}</section>;
+}
+
+function IssueComparisonCards({ issues }: { issues: ComparableIssue[] }) {
+  return issues.length ? issues.map((issue) => <article className="comparison-card" key={issue.id}><strong>{issue.title}</strong><p>{issue.severity} · {issue.issueType}</p><small>{evidenceSummary(issue)}</small></article>) : <p className="comparison-empty">无</p>;
+}
+
+function evidenceSummary(issue: ComparableIssue) {
+  const evidence = issue.evidence[0];
+  if (!evidence) return "无可追溯证据";
+  return `${evidence.sourceLocation || evidence.selector || "位置未标注"}｜${evidence.quoteText.slice(0, 60)}`;
+}
+
+function formatRun(run: AgentRun) {
+  return `${new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(run.startedAt))} · ${run.id.slice(0, 8)}`;
 }
 
 function CanvasHeader({ title, crumb, state }: { title: string; crumb: string; state?: string }) {

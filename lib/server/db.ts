@@ -82,6 +82,8 @@ db.exec(`
     screenshot_path TEXT,
     capture_status TEXT NOT NULL DEFAULT 'pending',
     capture_error TEXT,
+    reviewability TEXT NOT NULL DEFAULT 'unknown',
+    reviewability_reason TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     UNIQUE(project_id, label)
   );
@@ -199,6 +201,23 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_issues_project ON issues(project_id, created_at);
   CREATE INDEX IF NOT EXISTS idx_runs_project ON agent_runs(project_id, started_at);
   CREATE INDEX IF NOT EXISTS idx_events_run ON agent_events(run_id, sequence);
+`);
+
+const prototypeColumns = db.pragma("table_info(prototype_versions)") as Array<{ name: string }>;
+if (!prototypeColumns.some((column) => column.name === "reviewability")) {
+  db.exec("ALTER TABLE prototype_versions ADD COLUMN reviewability TEXT NOT NULL DEFAULT 'unknown'");
+}
+if (!prototypeColumns.some((column) => column.name === "reviewability_reason")) {
+  db.exec("ALTER TABLE prototype_versions ADD COLUMN reviewability_reason TEXT NOT NULL DEFAULT ''");
+}
+db.exec(`
+  UPDATE prototype_versions
+  SET reviewability = CASE WHEN capture_status = 'failed' THEN 'failed' ELSE 'reviewable' END,
+      reviewability_reason = CASE
+        WHEN capture_status = 'failed' THEN COALESCE(capture_error, '历史版本采集失败')
+        ELSE '历史版本在采集质量诊断上线前已完成 DOM 采集。'
+      END
+  WHERE reviewability = 'unknown' AND capture_status IN ('captured', 'failed');
 `);
 
 export function now() {

@@ -95,9 +95,11 @@ export function updatePrototypeCapture(versionId: string, input: {
   screenshotPath?: string | null;
   status: "captured" | "failed";
   error?: string | null;
+  reviewability: PrototypeVersion["reviewability"];
+  reviewabilityReason: string;
 }) {
-  db.prepare(`UPDATE prototype_versions SET title = ?, page_url = ?, dom_json = ?, visible_text = ?, controls_json = ?, screenshot_path = ?, capture_status = ?, capture_error = ? WHERE id = ?`)
-    .run(input.title || "", input.pageUrl || "", JSON.stringify(input.dom || []), input.visibleText || "", JSON.stringify(input.controls || []), input.screenshotPath || null, input.status, input.error || null, versionId);
+  db.prepare(`UPDATE prototype_versions SET title = ?, page_url = ?, dom_json = ?, visible_text = ?, controls_json = ?, screenshot_path = ?, capture_status = ?, capture_error = ?, reviewability = ?, reviewability_reason = ? WHERE id = ?`)
+    .run(input.title || "", input.pageUrl || "", JSON.stringify(input.dom || []), input.visibleText || "", JSON.stringify(input.controls || []), input.screenshotPath || null, input.status, input.error || null, input.reviewability, input.reviewabilityReason, versionId);
 }
 
 export function getPrototype(versionId: string): PrototypeVersion {
@@ -118,12 +120,13 @@ export function getPrototypeFileInfo(versionId: string) {
 }
 
 export function inspectPrototypeData(versionId: string) {
-  const row = db.prepare(`SELECT id, project_id, label, title, page_url, visible_text, dom_json, controls_json, capture_status, capture_error FROM prototype_versions WHERE id = ?`).get(versionId) as Row | undefined;
+  const row = db.prepare(`SELECT id, project_id, label, title, page_url, visible_text, dom_json, controls_json, capture_status, capture_error, reviewability, reviewability_reason FROM prototype_versions WHERE id = ?`).get(versionId) as Row | undefined;
   if (!row) throw new Error("原型版本不存在");
   return {
     id: String(row.id), projectId: String(row.project_id), label: String(row.label), title: String(row.title), pageUrl: String(row.page_url),
     visibleText: String(row.visible_text), elements: parseJson<unknown[]>(row.dom_json, []), controls: parseJson<unknown[]>(row.controls_json, []),
     captureStatus: String(row.capture_status), captureError: row.capture_error ? String(row.capture_error) : null,
+    reviewability: String(row.reviewability), reviewabilityReason: String(row.reviewability_reason || ""),
   };
 }
 
@@ -290,7 +293,7 @@ function mapSource(row: Row): SourceItem {
 
 function mapVersion(row: Row): PrototypeVersion {
   const versionId = String(row.id);
-  return { id: versionId, projectId: String(row.project_id), label: String(row.label), sourceType: String(row.source_type) as PrototypeVersion["sourceType"], sourceUrl: row.source_url ? String(row.source_url) : null, title: String(row.title || ""), pageUrl: String(row.page_url || ""), visibleText: String(row.visible_text || ""), controls: parseJson(row.controls_json, []), captureStatus: String(row.capture_status) as PrototypeVersion["captureStatus"], captureError: row.capture_error ? String(row.capture_error) : null, screenshotUrl: row.screenshot_path ? `/api/prototypes/${versionId}/screenshot` : null, previewUrl: String(row.source_type) === "url" ? String(row.source_url || "") : `/api/prototypes/${versionId}/assets/${String(row.entry_path || "index.html")}`, createdAt: String(row.created_at) };
+  return { id: versionId, projectId: String(row.project_id), label: String(row.label), sourceType: String(row.source_type) as PrototypeVersion["sourceType"], sourceUrl: row.source_url ? String(row.source_url) : null, title: String(row.title || ""), pageUrl: String(row.page_url || ""), visibleText: String(row.visible_text || ""), controls: parseJson(row.controls_json, []), captureStatus: String(row.capture_status) as PrototypeVersion["captureStatus"], captureError: row.capture_error ? String(row.capture_error) : null, reviewability: String(row.reviewability || "unknown") as PrototypeVersion["reviewability"], reviewabilityReason: String(row.reviewability_reason || ""), screenshotUrl: row.screenshot_path ? `/api/prototypes/${versionId}/screenshot` : null, previewUrl: String(row.source_type) === "url" ? String(row.source_url || "") : `/api/prototypes/${versionId}/assets/${String(row.entry_path || "index.html")}`, createdAt: String(row.created_at) };
 }
 
 function mapClaim(row: Row): Claim {
@@ -303,13 +306,13 @@ function mapIssue(row: Row): Issue {
   const decisions = (db.prepare(`SELECT * FROM decisions WHERE issue_id = ? ORDER BY created_at DESC`).all(issueId) as Row[]).map(mapDecision);
   const verifications = (db.prepare(`SELECT x.*, fv.label AS from_version_label, tv.label AS to_version_label FROM verifications x JOIN prototype_versions fv ON fv.id = x.from_version_id JOIN prototype_versions tv ON tv.id = x.to_version_id WHERE x.issue_id = ? ORDER BY x.created_at DESC`).all(issueId) as Row[]).map(mapVerification);
   const versionRow = row.version_id ? db.prepare(`SELECT label FROM prototype_versions WHERE id = ?`).get(row.version_id) as Row | undefined : undefined;
-  return { id: issueId, projectId: String(row.project_id), title: String(row.title), issueType: String(row.issue_type), sourceKind: String(row.source_kind), severity: String(row.severity) as Issue["severity"], confidence: String(row.confidence) as Issue["confidence"], status: String(row.status) as Issue["status"], summary: String(row.summary), impact: String(row.impact), rationale: String(row.rationale), clarificationQuestion: String(row.clarification_question), clarificationRole: String(row.clarification_role), verificationCriteria: parseJson(row.verification_criteria_json, []), versionId: row.version_id ? String(row.version_id) : null, versionLabel: versionRow ? String(versionRow.label) : null, pageUrl: String(row.page_url), selector: String(row.selector), region: String(row.region), evidence, decisions, verifications, createdAt: String(row.created_at), updatedAt: String(row.updated_at) };
+  return { id: issueId, projectId: String(row.project_id), runId: row.run_id ? String(row.run_id) : null, title: String(row.title), issueType: String(row.issue_type), sourceKind: String(row.source_kind), severity: String(row.severity) as Issue["severity"], confidence: String(row.confidence) as Issue["confidence"], status: String(row.status) as Issue["status"], summary: String(row.summary), impact: String(row.impact), rationale: String(row.rationale), clarificationQuestion: String(row.clarification_question), clarificationRole: String(row.clarification_role), verificationCriteria: parseJson(row.verification_criteria_json, []), versionId: row.version_id ? String(row.version_id) : null, versionLabel: versionRow ? String(versionRow.label) : null, pageUrl: String(row.page_url), selector: String(row.selector), region: String(row.region), evidence, decisions, verifications, createdAt: String(row.created_at), updatedAt: String(row.updated_at) };
 }
 
 function mapEvidence(row: Row): IssueEvidence { return { id: String(row.id), sourceId: row.source_id ? String(row.source_id) : null, chunkId: row.chunk_id ? String(row.chunk_id) : null, prototypeVersionId: row.prototype_version_id ? String(row.prototype_version_id) : null, sourceTitle: row.source_title ? String(row.source_title) : null, versionLabel: row.version_label ? String(row.version_label) : null, quoteText: String(row.quote_text), sourceLocation: String(row.source_location), selector: String(row.selector) }; }
 function mapDecision(row: Row): IssueDecision { return { id: String(row.id), action: String(row.action), reason: String(row.reason), actor: String(row.actor), createdAt: String(row.created_at) }; }
 function mapVerification(row: Row): Verification { return { id: String(row.id), result: String(row.result) as Verification["result"], summary: String(row.summary), evidence: parseJson(row.evidence_json, []), fromVersionLabel: String(row.from_version_label), toVersionLabel: String(row.to_version_label), createdAt: String(row.created_at) }; }
-function mapRun(row: Row): AgentRun { const runId = String(row.id); const events = (db.prepare(`SELECT * FROM agent_events WHERE run_id = ? ORDER BY sequence ASC`).all(runId) as Row[]).map(mapAgentEvent); return { id: runId, mode: String(row.mode) as AgentRun["mode"], status: String(row.status) as AgentRun["status"], model: String(row.model), errorMessage: row.error_message ? String(row.error_message) : null, startedAt: String(row.started_at), completedAt: row.completed_at ? String(row.completed_at) : null, events }; }
+function mapRun(row: Row): AgentRun { const runId = String(row.id); const events = (db.prepare(`SELECT * FROM agent_events WHERE run_id = ? ORDER BY sequence ASC`).all(runId) as Row[]).map(mapAgentEvent); return { id: runId, mode: String(row.mode) as AgentRun["mode"], status: String(row.status) as AgentRun["status"], model: String(row.model), targetVersionId: row.target_version_id ? String(row.target_version_id) : null, issueId: row.issue_id ? String(row.issue_id) : null, errorMessage: row.error_message ? String(row.error_message) : null, startedAt: String(row.started_at), completedAt: row.completed_at ? String(row.completed_at) : null, events }; }
 function mapAgentEvent(row: Row): AgentEvent { return { id: String(row.id), sequence: Number(row.sequence), toolName: String(row.tool_name), eventType: String(row.event_type), paramsSummary: String(row.params_summary), resultSummary: String(row.result_summary), status: String(row.status) as AgentEvent["status"], durationMs: row.duration_ms == null ? null : Number(row.duration_ms), createdAt: String(row.created_at) }; }
 
 function parseJson<T>(value: unknown, fallback: T): T { try { return JSON.parse(String(value)) as T; } catch { return fallback; } }

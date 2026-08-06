@@ -130,6 +130,29 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .capture-state { color: var(--accent-strong); font-size: 8px; font-weight: 700; }
 .capture-state.failed { color: var(--danger); }
 
+.comparison-view { min-height: 100%; }
+.comparison-selectors { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 4px 0 14px; }
+.stability-summary { display: grid; grid-template-columns: 150px 1fr; gap: 18px; align-items: center; margin-bottom: 16px; padding: 15px; border: 1px solid rgba(45,101,223,.15); border-radius: 16px; background: var(--accent-soft); }
+.stability-summary.variable { border-color: rgba(185,56,47,.2); background: var(--danger-soft); }
+.stability-summary strong, .stability-summary small { display: block; }
+.stability-summary strong { font-size: 17px; }
+.stability-summary small { margin-top: 4px; color: var(--accent-strong); font-size: 8px; font-weight: 700; }
+.stability-summary.variable small { color: var(--danger); }
+.stability-summary p { margin: 3px 0; color: #596273; font-size: 9px; line-height: 1.5; }
+.comparison-group { margin-top: 14px; }
+.comparison-group > h3 { margin: 0 0 8px; font-size: 11px; }
+.comparison-card { margin-bottom: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 13px; background: rgba(255,255,255,.82); }
+.comparison-card.shared { border-color: rgba(45,101,223,.2); }
+.comparison-card header { display: flex; justify-content: space-between; gap: 12px; }
+.comparison-card strong { font-size: 10px; }
+.comparison-card header span, .comparison-card small { color: var(--muted); font-size: 8px; }
+.comparison-card p { margin: 5px 0; color: #596273; font-size: 9px; }
+.comparison-diffs { display: grid; gap: 5px; margin-top: 8px; }
+.comparison-diffs span { padding: 7px 9px; border-radius: 9px; background: #f7f9fc; color: #596273; font-size: 8px; line-height: 1.45; }
+.comparison-diffs span.changed { background: var(--danger-soft); color: var(--danger); }
+.comparison-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.comparison-empty { padding: 14px; border: 1px dashed var(--line); border-radius: 12px; color: var(--muted); font-size: 9px; text-align: center; }
+
 .agent-scroll { flex: 1; overflow: auto; padding: 14px 18px; }
 .agent-intro { padding: 13px; border: 1px solid rgba(45,101,223,.1); border-radius: 17px; background: var(--accent-soft); }
 .agent-kicker { display: flex; align-items: center; gap: 7px; color: var(--accent-strong); font-size: 9px; font-weight: 800; }

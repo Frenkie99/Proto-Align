@@ -29,6 +29,7 @@ export async function executeAgentRun(input: RunInput) {
   const workspace = getWorkspace(input.projectId);
   const targetVersion = workspace.versions.find((version) => version.id === input.versionId);
   if (!targetVersion || targetVersion.captureStatus !== "captured") throw new Error("请选择已完成 DOM 采集的原型版本");
+  if (targetVersion.reviewability !== "reviewable") throw new Error(`该原型当前不可评审：${targetVersion.reviewabilityReason || "页面内容不足"}`);
   if (!workspace.sources.length) throw new Error("请先导入至少一份真实文本资料或角色反馈");
   if (input.mode === "verify" && !input.issueId) throw new Error("复检必须指定历史问题");
 
@@ -103,7 +104,7 @@ function createReviewTools(context: RunInput & { runId: string }, counters: { sa
     name: "list_prototype_pages",
     description: "列出当前项目已真实采集的原型版本与页面，供你决定检查哪个版本。",
     parameters: z.object({}),
-    execute: () => getWorkspace(context.projectId).versions.map((version) => ({ id: version.id, label: version.label, title: version.title, pageUrl: version.pageUrl, captureStatus: version.captureStatus })),
+    execute: () => getWorkspace(context.projectId).versions.map((version) => ({ id: version.id, label: version.label, title: version.title, pageUrl: version.pageUrl, captureStatus: version.captureStatus, reviewability: version.reviewability, reviewabilityReason: version.reviewabilityReason })),
   });
   const inspectPrototype = loggedTool(context.runId, {
     name: "inspect_prototype",

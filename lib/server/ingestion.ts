@@ -5,6 +5,7 @@ import path from "node:path";
 import { chromium } from "playwright";
 import { unzipSync } from "fflate";
 import { htmlToText, normalizeZipPath } from "@/lib/core/text";
+import { classifyPrototypeQuality } from "@/lib/core/prototype-quality";
 import { db, screenshotsRoot, uploadsRoot } from "./db";
 import { addSource, getPrototype, insertPrototype, updatePrototypeCapture } from "./repository";
 import { readStaticAsset, STATIC_PROTOTYPE_CSP } from "./static-assets";
@@ -74,7 +75,7 @@ export async function ingestPrototype(projectId: string, formData: FormData) {
     return getPrototype(versionId);
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : "原型采集失败";
-    updatePrototypeCapture(versionId, { status: "failed", error: message });
+    updatePrototypeCapture(versionId, { status: "failed", error: message, reviewability: "failed", reviewabilityReason: message });
     throw new Error(`原型已记录，但 DOM 采集失败：${message}`);
   }
 }
@@ -153,12 +154,23 @@ export async function capturePrototype(versionId: string) {
         visibleText: (document.body.innerText || "").trim().replace(/\n{3,}/g, "\n\n").slice(0, 80_000),
         elements,
         controls: elements.filter((element) => controlTags.has(element.tag) || Boolean(element.role)).slice(0, 300),
+        hasPasswordField: Boolean(document.querySelector('input[type="password"]')),
+        readyState: document.readyState,
       };
     });
     const screenshotPath = path.join(screenshotsRoot, `${versionId}.png`);
     await page.screenshot({ path: screenshotPath, fullPage: true });
     const safePageUrl = version.sourceType === "url" ? snapshot.pageUrl : `uploaded-static://${version.label}/${fileInfo.entryPath || "index.html"}`;
-    updatePrototypeCapture(versionId, { ...snapshot, pageUrl: safePageUrl, dom: snapshot.elements, screenshotPath, status: "captured" });
+    const quality = classifyPrototypeQuality({
+      pageUrl: safePageUrl,
+      title: snapshot.title,
+      visibleText: snapshot.visibleText,
+      controlCount: snapshot.controls.length,
+      elementCount: snapshot.elements.length,
+      hasPasswordField: snapshot.hasPasswordField,
+      readyState: snapshot.readyState,
+    });
+    updatePrototypeCapture(versionId, { ...snapshot, pageUrl: safePageUrl, dom: snapshot.elements, screenshotPath, status: "captured", reviewability: quality.status, reviewabilityReason: quality.reason });
     await context.close();
   } finally {
     await browser.close();

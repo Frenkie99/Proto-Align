@@ -1,6 +1,33 @@
 import path from "node:path";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { expect, test } from "@playwright/test";
 import { strToU8, zipSync } from "fflate";
+
+let qualityFixtureServer: Server;
+let qualityFixtureBaseUrl = "";
+
+test.beforeAll(async () => {
+  qualityFixtureServer = createServer((request, response) => {
+    response.setHeader("content-type", "text/html; charset=utf-8");
+    if (request.url === "/login") {
+      response.end("<!doctype html><title>Sign in</title><main><h1>Sign in</h1><label>Email<input type='email'></label><label>Password<input type='password'></label><button>Sign in</button><a href='/forgot'>Forgot password</a></main>");
+      return;
+    }
+    if (request.url === "/shell") {
+      response.end("<!doctype html><title>Docs AI</title><main><div>Loading…</div></main>");
+      return;
+    }
+    response.end("<!doctype html><title>AI Support Workbench</title><main><h1>AI Support Workbench</h1><nav>Inbox Knowledge Settings</nav><p>Select a conversation and generate a candidate reply. An agent must confirm before sending.</p><button>Generate candidate</button><textarea aria-label='Candidate reply'></textarea></main>");
+  });
+  await new Promise<void>((resolve) => qualityFixtureServer.listen(0, "127.0.0.1", resolve));
+  const address = qualityFixtureServer.address() as AddressInfo;
+  qualityFixtureBaseUrl = `http://127.0.0.1:${address.port}`;
+});
+
+test.afterAll(async () => {
+  await new Promise<void>((resolve, reject) => qualityFixtureServer.close((error) => error ? reject(error) : resolve()));
+});
 
 test("blank project imports real text and HTML DOM, then reports missing model key honestly", async ({ page }) => {
   await page.goto("/");
@@ -122,4 +149,53 @@ test("ingestion and model failures remain visible, then a valid recovery persist
   await page.getByRole("button", { name: /导入资料/ }).click();
   await expect(page.getByText("恢复后的真实资料")).toBeVisible();
   await expect(page.getByText("DOM 已采集").first()).toBeVisible();
+});
+
+test("URL capture distinguishes reviewable, login and loading-shell pages before Agent review", async ({ page }) => {
+  const projectName = "URL 采集质量 E2E";
+  const projectResponse = await page.request.post("/api/projects", {
+    data: { name: projectName, goal: "验证 URL 导入质量诊断。", scope: "公开页面、登录门槛与加载空壳" },
+  });
+  expect(projectResponse.status()).toBe(201);
+  const project = await projectResponse.json() as { project: { id: string } };
+  const sourceResponse = await page.request.post(`/api/projects/${project.project.id}/sources`, {
+    multipart: { kind: "需求文档", role: "产品经理", title: "评审范围", content: "客服必须确认候选回复后才能发送。" },
+  });
+  expect(sourceResponse.status()).toBe(201);
+
+  async function importUrl(label: string, pathname: string) {
+    const response = await page.request.post(`/api/projects/${project.project.id}/prototypes`, {
+      multipart: { label, sourceType: "url", url: `${qualityFixtureBaseUrl}${pathname}`, notes: "确定性本地页面" },
+    });
+    expect(response.status()).toBe(201);
+    return response.json() as Promise<{ prototype: { id: string; reviewability: string; reviewabilityReason: string } }>;
+  }
+
+  const reviewable = await importUrl("READY", "/reviewable");
+  const login = await importUrl("LOGIN", "/login");
+  const shell = await importUrl("SHELL", "/shell");
+  expect(reviewable.prototype.reviewability).toBe("reviewable");
+  expect(login.prototype).toMatchObject({ reviewability: "login_required", reviewabilityReason: expect.stringContaining("登录") });
+  expect(shell.prototype).toMatchObject({ reviewability: "loading_shell", reviewabilityReason: expect.stringContaining("加载") });
+
+  const blockedRun = await page.request.post(`/api/projects/${project.project.id}/agent-runs`, {
+    data: { mode: "review", versionId: login.prototype.id },
+  });
+  expect(blockedRun.status()).toBe(502);
+  await expect(blockedRun.json()).resolves.toMatchObject({ error: expect.stringContaining("不可评审") });
+  const workspaceResponse = await page.request.get(`/api/projects/${project.project.id}`);
+  const workspace = await workspaceResponse.json() as { issues: unknown[]; runs: unknown[] };
+  expect(workspace.issues).toHaveLength(0);
+  expect(workspace.runs).toHaveLength(0);
+
+  await page.goto("/");
+  await page.locator(".brand").click();
+  await page.locator(".project-menu").getByRole("button", { name: new RegExp(projectName) }).click();
+  await page.getByRole("button", { name: "版本记录" }).click();
+  await expect(page.getByText("疑似登录页")).toBeVisible();
+  await expect(page.getByText("加载未完成 / 空壳")).toBeVisible();
+  await expect(page.getByRole("button", { name: "原型不可评审" })).toBeDisabled();
+  await page.getByRole("button", { name: "运行比较" }).click();
+  await expect(page.getByText("样本不足", { exact: true })).toBeVisible();
+  await expect(page.getByText(/至少需要两次已完成且生成 Issue 的初评/)).toBeVisible();
 });

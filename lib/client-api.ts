@@ -1,4 +1,4 @@
-import type { ApiErrorPayload, ProjectSummary, WorkspaceData } from "@/lib/types";
+import type { ApiErrorPayload, ProjectSummary, PrototypeVersion, WorkspaceData } from "@/lib/types";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
@@ -28,7 +28,7 @@ export const api = {
   addSource: (projectId: string, formData: FormData) =>
     request(`/api/projects/${projectId}/sources`, { method: "POST", body: formData }),
   addPrototype: (projectId: string, formData: FormData) =>
-    request(`/api/projects/${projectId}/prototypes`, { method: "POST", body: formData }),
+    request<{ prototype: PrototypeVersion }>(`/api/projects/${projectId}/prototypes`, { method: "POST", body: formData }),
   confirmClaims: (projectId: string, claimIds: string[]) =>
     request(`/api/projects/${projectId}/claims/confirm`, {
       method: "POST",

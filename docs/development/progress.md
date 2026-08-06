@@ -19,5 +19,9 @@
 - [x] 通过类型检查、单元测试、浏览器端到端测试、生产构建、原型静态验证和高等级依赖审计。
 - [x] 使用 Customer Service Agents Demo、OpenAgent 和 HuggingChat / Chat UI 完成 6 次独立真实 DeepSeek 初评；完成 Customer Service V1→V2 桌面端录制、人工处理与真实复检，详见 `docs/evaluation/overnight-report.md`。
 - [x] 将空资料、ZIP 路径穿越、不可访问 URL、缺少密钥、无效模型地址和持久化恢复纳入真实失败路径验证；新增端到端回归覆盖故障后有效导入与刷新。
+- [x] 为 URL / HTML / ZIP 采集增加可评审、疑似登录页、加载空壳与采集失败诊断；不可评审版本不会进入 Agent Run。
+- [x] 增加同项目两个真实初评 Run 的确定性比较视图，展示共同 / 独有主题、证据与严重程度变化，并以“待人工确认”标注稳定性。
+- [x] 以 HuggingChat 两次真实 DeepSeek 初评验证比较视图：共同主题 1、仅 A 2、仅 B 0，正确标记证据波动；桌面 1440×900 已检查。
+- [x] 完成多页 / 登录态采集的 P2 安全设计；当前未实现凭据、Cookie、多页爬取或权限扩张。
 
 发布检查已完成；本轮交付目标为提交并推送 `main`。

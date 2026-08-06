@@ -56,6 +56,8 @@ export interface PrototypeVersion {
   controls: PrototypeControl[];
   captureStatus: "pending" | "captured" | "failed";
   captureError: string | null;
+  reviewability: "reviewable" | "login_required" | "loading_shell" | "failed" | "unknown";
+  reviewabilityReason: string;
   screenshotUrl: string | null;
   previewUrl: string | null;
   createdAt: string;
@@ -107,6 +109,7 @@ export interface Verification {
 export interface Issue {
   id: string;
   projectId: string;
+  runId: string | null;
   title: string;
   issueType: string;
   sourceKind: string;
@@ -148,6 +151,8 @@ export interface AgentRun {
   mode: "review" | "verify";
   status: AgentRunStatus;
   model: string;
+  targetVersionId: string | null;
+  issueId: string | null;
   errorMessage: string | null;
   startedAt: string;
   completedAt: string | null;
