@@ -9,6 +9,7 @@ import { classifyPrototypeQuality } from "@/lib/core/prototype-quality";
 import { db, screenshotsRoot, uploadsRoot } from "./db";
 import { addSource, getPrototype, insertPrototype, updatePrototypeCapture } from "./repository";
 import { readStaticAsset, STATIC_PROTOTYPE_CSP } from "./static-assets";
+import { assertPublicPrototypeUrl } from "./public-url";
 
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024;
 const MAX_PROTOTYPE_BYTES = 25 * 1024 * 1024;
@@ -49,6 +50,7 @@ export async function ingestPrototype(projectId: string, formData: FormData) {
     const parsed = new URL(url);
     if (!(["http:", "https:"] as string[]).includes(parsed.protocol)) throw new Error("原型 URL 只支持 HTTP 或 HTTPS");
     sourceUrl = parsed.toString();
+    await assertPublicPrototypeUrl(sourceUrl);
   } else {
     if (!file) throw new Error("请选择 HTML 或 ZIP 文件");
     if (file.size > MAX_PROTOTYPE_BYTES) throw new Error("原型文件不能超过 25 MB");
@@ -95,6 +97,7 @@ export async function capturePrototype(versionId: string) {
   try {
     const context = await browser.newContext({ serviceWorkers: "block", viewport: { width: 1440, height: 1000 } });
     const page = await context.newPage();
+    let blockedNavigationError: Error | null = null;
     if (version.sourceType !== "url") {
       await page.route("**/*", async (route) => {
         try {
@@ -110,8 +113,26 @@ export async function capturePrototype(versionId: string) {
           await route.fulfill({ status: 404, body: "Prototype asset not found" });
         }
       });
+    } else if (process.env.PROTOALIGN_PUBLIC_MODE === "1") {
+      const checkedHosts = new Map<string, Promise<void>>();
+      await page.route("**/*", async (route) => {
+        try {
+          await assertPublicPrototypeUrl(route.request().url(), checkedHosts);
+          await route.continue();
+        } catch (cause) {
+          if (route.request().isNavigationRequest()) {
+            blockedNavigationError = cause instanceof Error ? cause : new Error("公网演示阻止了不安全的页面跳转");
+          }
+          await route.abort("blockedbyclient");
+        }
+      });
     }
-    await page.goto(target, { waitUntil: "domcontentloaded", timeout: 20_000 });
+    try {
+      await page.goto(target, { waitUntil: "domcontentloaded", timeout: 20_000 });
+    } catch (cause) {
+      if (blockedNavigationError) throw blockedNavigationError;
+      throw cause;
+    }
     await page.waitForLoadState("networkidle", { timeout: 3_000 }).catch(() => undefined);
     const snapshot = await page.evaluate(() => {
       function selectorFor(element: Element) {

@@ -28,6 +28,7 @@
 - 原型采集质量诊断，以及重复初评 Run 的确定性比较与稳定性提示；
 - 基于 `deepseek-v4-pro` 的真实工具型 Agent 初评与跨版本复检；
 - Issue 证据、人工决定、状态历史、版本和 Agent 活动记录；
+- 受共享密码、每日 Agent 额度和公网 URL 边界保护的免费临时演示入口；
 - 本地自动化测试与真实 DeepSeek 固定样例验证。
 
 当前尚未完成：线上部署与鉴权、云数据库、PDF / OCR / 音频 / Figma 输入、多页面自动爬取和视觉模型理解。
@@ -602,6 +603,27 @@ npm run build
 npm start
 ```
 
+### 免费临时公网演示
+
+面试预约时可让当前电脑充当单机服务器，通过 Cloudflare Quick Tunnel 生成临时 HTTPS 链接，不购买域名或云服务器。该方式不是生产部署：电脑、应用进程和网络必须保持在线，链接会在隧道重启后变化，Cloudflare 不保证 Quick Tunnel 的可用性。
+
+首次准备：
+
+```bash
+brew install cloudflared
+cp .env.demo.local.example .env.demo.local
+```
+
+在 Git 忽略的 `.env.demo.local` 中设置至少 12 位 `PROTOALIGN_ACCESS_PASSWORD` 和正整数 `PROTOALIGN_DAILY_AGENT_LIMIT`。启动：
+
+```bash
+npm run share:demo
+```
+
+脚本会重新生成生产构建，在本机 `127.0.0.1:3010` 启动受保护服务，并输出随机 `trycloudflare.com` 公网链接。访问用户名固定为 `protoalign`，密码来自 `.env.demo.local`。关闭运行脚本的终端或按 `Control-C` 会立即关闭公网入口。
+
+公网模式额外阻止 URL 原型访问 localhost、内网、链路本地和保留地址；Agent 调用额度按 Asia/Shanghai 自然日统计实际创建的 Run。共享密码只用于预约式单用户演示，不等同于正式用户认证。
+
 ### 验证命令
 
 ```bash
@@ -617,6 +639,7 @@ npm audit --audit-level=high
 ### 已知限制
 
 - 当前为单机单用户 MVP，SQLite 不适合多实例并发部署；
+- 免费公网演示依赖当前电脑持续在线、使用共享密码且临时域名会变化；它不替代正式鉴权、云数据库和生产部署；
 - URL 导入只采集传入的首个公开页面；系统会识别疑似登录页和加载空壳，但不会处理登录凭据、Cookie 或多页流程，后续安全边界见 `docs/architecture/authenticated-multipage-capture.md`；
 - 上传原型只运行静态 HTML / CSS / JavaScript，阻断其外部网络请求，不执行用户提供的服务端代码；
 - 文本资料当前只支持手工录入、TXT、Markdown 和 HTML，单文件上限 2 MB；
@@ -667,6 +690,7 @@ npm audit --audit-level=high
 - 2026-08-05：开发前整理目录；新增 `AGENTS.md` 与 Agent 架构文档，产品、设计、演示、迁移历史及原型分别归档。
 - 2026-08-06：以最终 HTML 的无编号蓝色选中态为交互基线，完成高保真原型工程化、SQLite 持久化、静态网页 DOM 采集、真实 DeepSeek 工具型初评与跨版本复检；补充本地运行、验证方法和已知限制。
 - 2026-08-06：完成三个公开 AI 产品的六次独立真实评审与一个桌面端 V1→V2 人工闭环录制；评估证据、失败路径和下一阶段风险见 `docs/evaluation/overnight-report.md`，不将公开 Demo 的不可访问状态伪装成产品能力缺陷。
+- 2026-08-06：新增零托管费用的预约式公网演示配置，以共享密码、每日 Agent 额度和公网 URL 内网阻断保护 Cloudflare Quick Tunnel；明确该方式不等同于生产部署或正式用户鉴权。
 - 2026-08-06：增加原型采集质量诊断、不可评审门禁、项目内重复初评比较与待人工确认的稳定性提示；多页和登录态仅完成安全设计，仍未实现。
 
 ## 23. 给新开发任务的启动指令

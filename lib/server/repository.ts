@@ -173,6 +173,11 @@ export function createRun(input: { projectId: string; mode: "review" | "verify";
   return runId;
 }
 
+export function countAgentRunsStartedSince(startedAt: string) {
+  const row = db.prepare(`SELECT COUNT(*) AS count FROM agent_runs WHERE started_at >= ?`).get(startedAt) as Row;
+  return Number(row.count || 0);
+}
+
 export function finishRun(runId: string, status: "completed" | "failed", errorMessage?: string) {
   db.prepare(`UPDATE agent_runs SET status = ?, error_message = ?, completed_at = ? WHERE id = ?`).run(status, errorMessage || null, now(), runId);
 }

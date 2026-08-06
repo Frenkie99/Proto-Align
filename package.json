@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "verify:prototype": "node scripts/verify-prototype.mjs"
+    "verify:prototype": "node scripts/verify-prototype.mjs",
+    "share:demo": "node scripts/share-demo.mjs"
   },
   "dependencies": {
     "@openai/agents": "0.14.3",
