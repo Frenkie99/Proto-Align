@@ -17,5 +17,7 @@
 - [x] 验证缺少 API Key 的失败路径、HTML / ZIP DOM 导入、刷新后的持久化和真实活动记录。
 - [x] 将上传原型采集隔离到只映射该版本目录的虚拟站点，并验证 ZIP 内相对 CSS / JavaScript 可运行、外部网络仍被阻断。
 - [x] 通过类型检查、单元测试、浏览器端到端测试、生产构建、原型静态验证和高等级依赖审计。
+- [x] 使用 Customer Service Agents Demo、OpenAgent 和 HuggingChat / Chat UI 完成 6 次独立真实 DeepSeek 初评；完成 Customer Service V1→V2 桌面端录制、人工处理与真实复检，详见 `docs/evaluation/overnight-report.md`。
+- [x] 将空资料、ZIP 路径穿越、不可访问 URL、缺少密钥、无效模型地址和持久化恢复纳入真实失败路径验证；新增端到端回归覆盖故障后有效导入与刷新。
 
 发布检查已完成；本轮交付目标为提交并推送 `main`。
