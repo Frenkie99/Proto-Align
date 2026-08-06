@@ -12,4 +12,4 @@
 - 失败路径：空资料、路径穿越 ZIP、不可访问 URL、缺少密钥、无效模型地址和刷新持久化已真实验证；新增 E2E 回归覆盖前五项和故障后恢复。
 - 最终回归：typecheck、4 个单测、2 个端到端测试、生产构建、冻结原型验证和高等级依赖审计均通过；视频已实际连续播放抽样确认。
 - 提交状态：已提交本轮“Validate real AI product review loops”成果；`.artifacts/`、SQLite 数据库和第三方源码均被 Git 忽略，密钥扫描通过。
-- 发布：已确认 GitHub SSH 身份为 `Frenkie99`，将以 SSH 推送到 `origin/main`。
+- 发布：已确认 GitHub SSH 身份为 `Frenkie99`，并已通过 SSH 推送到 `origin/main`。
