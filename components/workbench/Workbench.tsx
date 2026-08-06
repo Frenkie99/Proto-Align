@@ -228,8 +228,9 @@ export function Workbench({ publicMode = false }: { publicMode?: boolean }) {
                 onToggleClaim={(claimId) => setSelectedClaimIds((current) => current.includes(claimId) ? current.filter((id) => id !== claimId) : [...current, claimId])}
                 onConfirmClaims={confirmClaims}
                 isSavingClaims={busy}
+                onWorkspaceChanged={async () => { if (selectedProjectId) await loadWorkspace(selectedProjectId); }}
               />
-              <AgentPanel issue={selectedIssue} activityCount={activityEvents.length} onOpenActivity={() => setActivityOpen(true)} onStatusAction={setPendingStatus} />
+              <AgentPanel issue={selectedIssue} projectId={selectedProjectId} activityCount={activityEvents.length} onOpenActivity={() => setActivityOpen(true)} onStatusAction={setPendingStatus} />
             </>
           ) : (
             <div className="project-empty-state">
@@ -268,10 +269,9 @@ export function Workbench({ publicMode = false }: { publicMode?: boolean }) {
       </Modal>
       <Modal open={demoGuideOpen} title="5 分钟看懂 ProtoAlign" description="建议先浏览真实记录，再决定是否创建空白项目亲自运行。" onClose={() => setDemoGuideOpen(false)} wide>
         <ol className="demo-guide-steps">
-          <li><strong>Customer Service Agents</strong><span>从问题证据看到 V1 → V2 复检，以及产品经理最终关闭问题。</span></li>
-          <li><strong>Agent 活动记录</strong><span>左下角打开真实工具事件，确认检索、DOM 检查和版本比较不是预设动画。</span></li>
-          <li><strong>OpenAgent</strong><span>查看工具权限、知识库隔离、审计与加载阻塞等另一类 AI 产品风险。</span></li>
-          <li><strong>HuggingChat · 运行比较</strong><span>查看两次真实评审的共同主题和证据波动；系统不会把模型输出包装成确定事实。</span></li>
+          <li><strong>Customer Service Agents · 完整闭环</strong><span>从证据看到 V1→V2 复检和产品经理关闭问题。打开左下角活动记录，确认工具事件不是预设动画。</span></li>
+          <li><strong>OpenAgent · 工具与隔离</strong><span>查看工具权限、知识库隔离、审计与加载阻塞等另一类 AI 产品风险。</span></li>
+          <li><strong>HuggingChat · 稳定性评审</strong><span>查看两次真实评审的共同主题和证据波动；系统不会把模型输出包装成确定事实。</span></li>
         </ol>
         <div className="demo-guide-boundary"><strong>真实试用：</strong>可新建空白项目，导入文本、TXT / Markdown、公开 URL、HTML 或静态 ZIP，再启动 DeepSeek Agent。请勿上传机密或个人资料；当前不支持 PDF、Figma、登录态和多页采集。</div>
         <div className="form-actions"><button type="button" onClick={() => { setDemoGuideOpen(false); setNewProjectOpen(true); }}>创建空白项目</button><button className="primary-button" type="button" onClick={() => setDemoGuideOpen(false)}>开始浏览精选案例</button></div>

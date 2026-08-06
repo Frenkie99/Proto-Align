@@ -47,4 +47,16 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(input),
     }),
+  addEvidence: (issueId: string, input: { sourceId?: string; prototypeVersionId?: string; quoteText: string; sourceLocation: string; selector?: string; sourceRole?: "customer" | "development" }) =>
+    request(`/api/issues/${issueId}/evidence`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+  chatWithAgent: (projectId: string, input: { issueId: string; message: string }) =>
+    request<{ answer: string }>(`/api/projects/${projectId}/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }),
 };

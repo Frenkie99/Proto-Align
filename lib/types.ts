@@ -42,6 +42,7 @@ export interface PrototypeControl {
   text: string;
   ariaLabel: string;
   selector: string;
+  box: { x: number; y: number; width: number; height: number };
 }
 
 export interface PrototypeVersion {

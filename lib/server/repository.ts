@@ -282,6 +282,20 @@ export function searchSourceChunks(projectId: string, query: string, kind?: stri
   }));
 }
 
+export function addIssueEvidence(input: {
+  issueId: string; sourceId?: string; prototypeVersionId?: string;
+  quoteText: string; sourceLocation: string; selector?: string; sourceRole?: string;
+}) {
+  const issueRow = db.prepare(`SELECT project_id FROM issues WHERE id = ?`).get(input.issueId) as Row | undefined;
+  if (!issueRow) throw new Error("问题不存在");
+  const evidenceId = id("evd");
+  db.prepare(`INSERT INTO issue_evidence (id, issue_id, source_id, chunk_id, prototype_version_id, quote_text, source_location, selector) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(evidenceId, input.issueId, input.sourceId || null, null, input.prototypeVersionId || null, input.quoteText, input.sourceLocation, input.selector || "");
+  db.prepare(`UPDATE issues SET updated_at = ? WHERE id = ?`).run(now(), input.issueId);
+  touchProject(String(issueRow.project_id));
+  return evidenceId;
+}
+
 export function getIssue(issueId: string): Issue {
   const row = db.prepare(`SELECT * FROM issues WHERE id = ?`).get(issueId) as Row | undefined;
   if (!row) throw new Error("问题不存在");
