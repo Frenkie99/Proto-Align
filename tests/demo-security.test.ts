@@ -6,6 +6,8 @@ import {
   isUnsafePublicHostname,
   parseDailyAgentLimit,
 } from "@/lib/core/demo-security";
+import { parseFeaturedProjectIds, selectDemoProjects } from "@/lib/core/demo-projects";
+import type { ProjectSummary } from "@/lib/types";
 
 describe("demo access protection", () => {
   it("stays disabled for normal local development when no password is configured", () => {
@@ -49,5 +51,21 @@ describe("public prototype URL boundary", () => {
   it.each(["example.com", "1.1.1.1", "8.8.8.8", "2606:4700:4700::1111"])("allows public address or hostname %s", (value) => {
     expect(isUnsafePublicHostname(value)).toBe(false);
     if (/[:\d]/.test(value) && !/[a-z]/i.test(value)) expect(isPrivateNetworkAddress(value)).toBe(false);
+  });
+});
+
+describe("public demo project curation", () => {
+  const project = (id: string, updatedAt: string): ProjectSummary => ({
+    id, name: id, goal: "goal", scope: "scope", readinessSuggestion: "暂不可交付",
+    sourceCount: 1, issueCount: 1, versionCount: 1, updatedAt,
+  });
+
+  it("keeps the configured order, then appends projects created in this demo session", () => {
+    const projects = [project("recent-test", "3"), project("huggingchat", "2"), project("customer", "1"), project("trial", "4")];
+    expect(parseFeaturedProjectIds(" customer, huggingchat, customer ")).toEqual(["customer", "huggingchat"]);
+    const selected = selectDemoProjects(projects, ["customer", "huggingchat"], ["trial"]);
+    expect(selected.map(({ id }) => id))
+      .toEqual(["customer", "huggingchat", "trial"]);
+    expect(selected.map(({ name }) => name)).toEqual(["customer｜完整闭环", "huggingchat｜工具与隔离", "trial"]);
   });
 });

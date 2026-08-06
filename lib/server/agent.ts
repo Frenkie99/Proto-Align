@@ -71,7 +71,7 @@ export async function executeAgentRun(input: RunInput) {
     const runner = new Runner({ modelProvider: provider, tracingDisabled: true });
     const prompt = input.mode === "verify"
       ? `复检项目“${project.name}”中的问题 ${input.issueId}。目标版本 ID：${input.versionId}。先读取问题上下文，再比较历史版本和目标版本，最后保存一条复检结论。`
-      : `评审项目“${project.name}”。产品目标：${project.goal}。评审范围：${project.scope}。目标原型版本 ID：${input.versionId}。已导入资料：${workspace.sources.map((source) => `${source.kind}《${source.title}》`).join("、")}。请自主选择具体检索词并检查原型，最多保存三条高价值 Issue 草稿，同时提取必要的待确认主张。`;
+      : `评审项目“${project.name}”。产品目标：${project.goal}。评审范围：${project.scope}。目标原型版本 ID：${input.versionId}。已导入资料：${workspace.sources.map((source) => `${source.kind}《${source.title}》`).join("、")}。${workspace.issues.length ? `项目已有 Issue 标题：${workspace.issues.map((issue) => `《${issue.title}》`).join("、")}。不要重复保存同一问题；若证据不足以支持新的高价值问题，应提出澄清而不是改写已有标题。` : ""}请自主选择具体检索词并检查原型，最多保存三条高价值 Issue 草稿，同时提取必要的待确认主张。`;
     const startedAt = Date.now();
     const result = await runner.run(agent, prompt, { maxTurns: 8 });
     const validResult = input.mode === "verify" ? counters.verifications > 0 : counters.savedIssues > 0 || counters.clarifications > 0;

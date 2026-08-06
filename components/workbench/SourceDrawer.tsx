@@ -13,6 +13,7 @@ export function SourceDrawer({
   versions,
   onAddSource,
   onAddPrototype,
+  publicMode = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -20,6 +21,7 @@ export function SourceDrawer({
   versions: PrototypeVersion[];
   onAddSource: (formData: FormData) => Promise<void>;
   onAddPrototype: (formData: FormData) => Promise<void>;
+  publicMode?: boolean;
 }) {
   const [mode, setMode] = useState<ImportMode | null>(null);
   const [busy, setBusy] = useState(false);
@@ -53,6 +55,7 @@ export function SourceDrawer({
         </header>
         <div className="source-body">
           <div className="source-principle"><strong>输入原则：</strong>原型版本是被评审对象；文本资料和角色反馈是评审依据。当前真实支持 URL、HTML、静态 ZIP、纯文本与 Markdown。</div>
+          {publicMode ? <p className="public-demo-warning"><strong>公开演示提醒：</strong>请勿上传机密、客户或个人资料。输入会保存在当前单机演示环境中，模型或工具失败会如实显示，不会生成虚拟结果。</p> : null}
           {!mode ? (
             <>
               <div className="section-heading"><h3>添加输入</h3><span>保存后由真实采集器或 Agent 处理</span></div>

@@ -10,7 +10,7 @@ import { IssueList } from "./IssueList";
 import { Modal } from "./Modal";
 import { SourceDrawer } from "./SourceDrawer";
 
-export function Workbench() {
+export function Workbench({ publicMode = false }: { publicMode?: boolean }) {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [workspace, setWorkspace] = useState<WorkspaceData | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -21,6 +21,7 @@ export function Workbench() {
   const [sourceDrawerOpen, setSourceDrawerOpen] = useState(false);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
+  const [demoGuideOpen, setDemoGuideOpen] = useState(publicMode);
   const [pendingStatus, setPendingStatus] = useState<string | null>(null);
   const [mobilePane, setMobilePane] = useState<"issues" | "agent" | null>(null);
   const [selectedClaimIds, setSelectedClaimIds] = useState<string[]>([]);
@@ -32,10 +33,14 @@ export function Workbench() {
     const next = await api.getWorkspace(projectId);
     setWorkspace(next);
     setProjects((current) => current.map((item) => item.id === projectId ? next.project : item));
-    setSelectedIssueId((current) => next.issues.some((issue) => issue.id === current) ? current : next.issues[0]?.id ?? null);
+    setSelectedIssueId((current) => {
+      if (next.issues.some((issue) => issue.id === current)) return current;
+      const demonstratedLoop = publicMode ? next.issues.find((issue) => issue.verifications.length > 0 && issue.decisions.length > 0) : null;
+      return demonstratedLoop?.id ?? next.issues[0]?.id ?? null;
+    });
     setSelectedVersionId((current) => next.versions.some((version) => version.id === current) ? current : next.versions.at(-1)?.id ?? null);
     setSelectedClaimIds([]);
-  }, []);
+  }, [publicMode]);
 
   useEffect(() => {
     let active = true;
@@ -194,6 +199,7 @@ export function Workbench() {
               {workspace?.versions.map((version) => <option key={version.id} value={version.id}>{version.label}</option>)}
             </select>
           </label>
+          {publicMode ? <button className="guide-button" onClick={() => setDemoGuideOpen(true)}>作品导览</button> : null}
           <button className="source-button" disabled={!workspace} onClick={() => setSourceDrawerOpen(true)}>＋ 导入资料</button>
           <button className="mobile-toggle issues-toggle" disabled={!workspace} onClick={() => setMobilePane((pane) => pane === "issues" ? null : "issues")}>问题</button>
           <button className="mobile-toggle agent-toggle" disabled={!workspace} onClick={() => setMobilePane((pane) => pane === "agent" ? null : "agent")}>Agent</button>
@@ -250,7 +256,7 @@ export function Workbench() {
         </div>
       ) : null}
 
-      <SourceDrawer open={sourceDrawerOpen} onClose={() => setSourceDrawerOpen(false)} sources={workspace?.sources || []} versions={workspace?.versions || []} onAddSource={addSource} onAddPrototype={addPrototype} />
+      <SourceDrawer open={sourceDrawerOpen} onClose={() => setSourceDrawerOpen(false)} sources={workspace?.sources || []} versions={workspace?.versions || []} onAddSource={addSource} onAddPrototype={addPrototype} publicMode={publicMode} />
       <ActivityDrawer open={activityOpen} onClose={() => setActivityOpen(false)} events={activityEvents} runs={workspace?.runs || []} />
       <Modal open={newProjectOpen} title="新建空白项目" description="只建立项目上下文，不创建任何预置 Issue。" onClose={() => setNewProjectOpen(false)}>
         <form onSubmit={createProject}>
@@ -259,6 +265,16 @@ export function Workbench() {
           <label className="field">本次评审范围<textarea name="scope" required placeholder="例如：候选话术生成、编辑、确认与发送流程" /></label>
           <div className="form-actions"><button type="button" onClick={() => setNewProjectOpen(false)}>取消</button><button className="primary-button" disabled={busy}>{busy ? "正在创建…" : "创建项目"}</button></div>
         </form>
+      </Modal>
+      <Modal open={demoGuideOpen} title="5 分钟看懂 ProtoAlign" description="建议先浏览真实记录，再决定是否创建空白项目亲自运行。" onClose={() => setDemoGuideOpen(false)} wide>
+        <ol className="demo-guide-steps">
+          <li><strong>Customer Service Agents</strong><span>从问题证据看到 V1 → V2 复检，以及产品经理最终关闭问题。</span></li>
+          <li><strong>Agent 活动记录</strong><span>左下角打开真实工具事件，确认检索、DOM 检查和版本比较不是预设动画。</span></li>
+          <li><strong>OpenAgent</strong><span>查看工具权限、知识库隔离、审计与加载阻塞等另一类 AI 产品风险。</span></li>
+          <li><strong>HuggingChat · 运行比较</strong><span>查看两次真实评审的共同主题和证据波动；系统不会把模型输出包装成确定事实。</span></li>
+        </ol>
+        <div className="demo-guide-boundary"><strong>真实试用：</strong>可新建空白项目，导入文本、TXT / Markdown、公开 URL、HTML 或静态 ZIP，再启动 DeepSeek Agent。请勿上传机密或个人资料；当前不支持 PDF、Figma、登录态和多页采集。</div>
+        <div className="form-actions"><button type="button" onClick={() => { setDemoGuideOpen(false); setNewProjectOpen(true); }}>创建空白项目</button><button className="primary-button" type="button" onClick={() => setDemoGuideOpen(false)}>开始浏览精选案例</button></div>
       </Modal>
       <Modal open={Boolean(pendingStatus)} title={statusTitle(pendingStatus)} description="状态变化必须由产品经理确认并记录依据；Agent 不会自动执行。" onClose={() => setPendingStatus(null)}>
         <form onSubmit={updateIssue}>

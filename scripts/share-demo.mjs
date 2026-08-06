@@ -12,6 +12,7 @@ const fileEnv = {
 const runtimeEnv = { ...fileEnv, ...process.env, PROTOALIGN_PUBLIC_MODE: "1", PORT: String(localPort) };
 const password = runtimeEnv.PROTOALIGN_ACCESS_PASSWORD?.trim();
 const dailyLimit = Number(runtimeEnv.PROTOALIGN_DAILY_AGENT_LIMIT);
+const featuredProjectIds = [...new Set((runtimeEnv.PROTOALIGN_FEATURED_PROJECT_IDS || "").split(",").map((value) => value.trim()).filter(Boolean))];
 
 if (!password || password === "replace_with_a_long_demo_password" || password.length < 12) {
   fail("请先在 .env.demo.local 设置至少 12 位的 PROTOALIGN_ACCESS_PASSWORD，再启动公网演示。");
@@ -19,6 +20,10 @@ if (!password || password === "replace_with_a_long_demo_password" || password.le
 if (!Number.isSafeInteger(dailyLimit) || dailyLimit <= 0) {
   fail("请先在 .env.demo.local 设置正整数 PROTOALIGN_DAILY_AGENT_LIMIT，例如 12。");
 }
+if (featuredProjectIds.length !== 3) {
+  fail("请在 .env.demo.local 设置恰好 3 个逗号分隔的 PROTOALIGN_FEATURED_PROJECT_IDS，并把 Customer Service 完整闭环案例放在第一位。");
+}
+assertFeaturedProjectsExist(featuredProjectIds);
 if (spawnSync("cloudflared", ["--version"], { stdio: "ignore" }).status !== 0) {
   fail("未找到 cloudflared。macOS 可先运行：brew install cloudflared");
 }
@@ -43,6 +48,7 @@ try {
 
 console.log(`本地受保护服务已启动：${localUrl}`);
 console.log(`Agent 每日额度：${dailyLimit} 次（Asia/Shanghai 自然日）`);
+console.log("公开项目：3 个精选真实案例；本次会话新建的空白项目也会显示");
 console.log("正在创建免费的 Cloudflare 临时公网链接…");
 
 const tunnel = spawn("cloudflared", ["tunnel", "--url", localUrl, "--no-autoupdate"], {
@@ -114,6 +120,21 @@ async function waitForApp() {
 
 function pipeWithPrefix(stream, prefix) {
   stream.on("data", (chunk) => process.stdout.write(`[${prefix}] ${chunk}`));
+}
+
+function assertFeaturedProjectsExist(projectIds) {
+  const dataRoot = runtimeEnv.PROTOALIGN_DATA_DIR ? path.resolve(runtimeEnv.PROTOALIGN_DATA_DIR) : path.join(root, "data");
+  const databasePath = path.join(dataRoot, "protoalign.db");
+  if (!fs.existsSync(databasePath)) fail(`未找到演示数据库：${databasePath}`);
+  const placeholders = projectIds.map(() => "?").join(",");
+  const check = spawnSync("node", ["--input-type=module", "-e", `
+    import Database from "better-sqlite3";
+    const db = new Database(process.argv[1], { readonly: true });
+    const ids = JSON.parse(process.argv[2]);
+    const found = db.prepare("SELECT id FROM projects WHERE id IN (${placeholders})").all(...ids);
+    if (found.length !== ids.length) process.exit(2);
+  `, databasePath, JSON.stringify(projectIds)], { cwd: root, env: runtimeEnv, stdio: "ignore" });
+  if (check.status !== 0) fail("PROTOALIGN_FEATURED_PROJECT_IDS 包含当前演示数据库中不存在的项目。");
 }
 
 function fail(message) {
