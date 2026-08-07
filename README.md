@@ -10,8 +10,7 @@ ProtoAlign 不是一个通用点评工具。它是一个驻留在项目中的 Ag
 - **不是黑箱输出**：每条 Issue 必须引用资料原文或渲染后 DOM，带版本、页面、区域、选择器和验证条件
 - **不替代人的判断**：AI 只生成草稿和复检建议，需求确认、风险接受、Issue 关闭始终由产品经理完成
 
-<video src="demo.mp4" controls width="100%" muted loop playsinline>
-  你的浏览器不支持视频播放。
+<video src="https://raw.githubusercontent.com/Frenkie99/Proto-Align/main/demo.mp4" controls width="100%" muted loop playsinline>
 </video>
 
 ### Agent 架构：双层循环
